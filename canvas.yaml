@@ -4,9 +4,7 @@ kind: Canvas
 metadata:
   description: Enforce codeowners.yml approval on pull requests with self-approval
     support.
-  id: de1f65dd-3bb2-4504-a451-e643f3df140f
   name: app-codeowners
-  organizationId: 2465f557-d381-4544-8abd-ae20c240fc7f
 spec:
   edges:
   - channel: default
