@@ -1,0 +1,161 @@
+---
+apiVersion: v1
+kind: Console
+metadata:
+  canvasId: de1f65dd-3bb2-4504-a451-e643f3df140f
+  name: app-codeowners
+spec:
+  layout:
+  - h: 11
+    i: readme
+    minH: 2
+    minW: 2
+    w: 4
+    x: 0
+    "y": 0
+  - h: 11
+    i: checks-table
+    minH: 4
+    minW: 4
+    w: 8
+    x: 4
+    "y": 0
+  panels:
+  - content:
+      body: |
+        Code Owners checks pull requests against a `codeowners.yml` file in your repository. It publishes a **Code Owners** status check and blocks merging when required owners have not approved.
+
+        <details>
+        <summary>Quick start</summary>
+
+        1. Add `codeowners.yml` to your repository root on `main` or `master`.
+        2. Connect GitHub and bind the integration on **On Pull Request**, **On PR Review**, **Add pull request reviewers**, and the status nodes. Select your repository on both triggers.
+        3. In branch protection, require the **Code Owners** status check.
+        4. Optional: add a `GITHUB_TOKEN` secret on **Check code owners** for private repositories.
+
+        </details>
+
+        <details>
+        <summary>Reviewers on open</summary>
+
+        When a pull request is **opened**, the app requests reviews from everyone listed in `codeowners.yml` for the changed files.
+
+        - The PR author is never requested
+        - People who already approved are skipped
+        - Group members are expanded from your `groups` section
+
+        </details>
+
+        <details>
+        <summary>codeowners.yml format</summary>
+
+        ```yaml
+        groups:
+          frontend-team:
+            - alice
+            - bob
+          docs-team:
+            - carol
+
+        rules:
+          - pattern: "/src/**"
+            self_approval: true
+            owners:
+              - "@frontend-team"
+              - "@eve"
+          - pattern: "/docs/**"
+            self_approval: false
+            owners:
+              - "@docs-team"
+        ```
+
+        Patterns are matched from the **repository root**. Use a leading `/` for clarity — `/pkg/models/**` means the `pkg/models/` directory at the top level of the repo, not a `models` folder somewhere else.
+
+        The last matching rule wins. `self_approval` defaults to `false`.
+
+        </details>
+
+        <details>
+        <summary>Groups</summary>
+
+        Define groups under `groups` with GitHub usernames (with or without `@`).
+
+        Reference a group in `owners` as `@group-name`. Any listed member can satisfy the rule. If the name is not a group, it is treated as an individual GitHub user.
+
+        </details>
+
+        <details>
+        <summary>Which branch?</summary>
+
+        - `codeowners.yml` is read from `main` or `master`
+        - Checks run only on pull requests into `main` or `master`
+        - Pull requests into other branches are skipped
+
+        </details>
+
+        <details>
+        <summary>Self-approval per rule</summary>
+
+        Set `self_approval: true` when owners should be able to merge their own changes without leaving a review.
+
+        Set `self_approval: false` (or omit it) to require an explicit approving review from a listed owner or group member.
+
+        </details>
+
+        <details>
+        <summary>What gets checked</summary>
+
+        A check runs when a pull request is opened, updated, reopened, or receives a submitted review.
+
+        The app reads `codeowners.yml`, maps changed files to owners and groups, and verifies each covered file is approved. With `self_approval: true`, listed owners pass automatically on their own pull requests.
+
+        - **Pass:** **Code Owners** status → success
+        - **Fail:** **Code Owners** status → failure
+
+        New commits trigger a fresh check. Approvals are re-evaluated when reviews are submitted.
+
+        </details>
+      title: Code Owners
+    id: readme
+    type: markdown
+  - content:
+      dataSource:
+        kind: memory
+        namespace: codeownersChecks
+      render:
+        columns:
+        - field: pr_number
+          label: PR
+        - field: title
+          label: Title
+        - field: author
+          label: Author
+        - field: satisfied
+          format: badge
+          label: Status
+        - field: pending_files
+          format: number
+          label: Pending files
+        - field: pending_owners
+          label: Pending owners
+        - field: approvers
+          label: Approvers
+        - field: last_checked_at
+          format: relative
+          label: Last check
+        kind: table
+        rowStyles:
+        - field: satisfied
+          op: eq
+          tone: green
+          value: 'true'
+        - field: satisfied
+          op: eq
+          tone: red
+          value: 'false'
+        sort:
+          field: last_checked_at
+          order: desc
+      title: Recent checks
+    id: checks-table
+    type: table
