@@ -8,9 +8,6 @@ metadata:
   name: app-codeowners
   organizationId: 2465f557-d381-4544-8abd-ae20c240fc7f
 spec:
-  changeManagement:
-    approvals:
-    - type: TYPE_ANYONE
   edges:
   - channel: default
     sourceId: trigger-on-pull-request
