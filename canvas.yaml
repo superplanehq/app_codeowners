@@ -57,14 +57,43 @@ spec:
     sourceId: if-satisfied
     targetId: github-publishcommitstatus-publish-failure-status-fa5c93
   nodes:
-  - component: if
+  - component: start
     configuration:
-      expression: '{{ root().data.action == "submitted" }}'
-    id: if-should-check-review
-    name: Should check review?
+      templates:
+      - name: run
+        parameters:
+        - name: repository
+          placeholder: e.g. superplanehq/superplane
+          title: Repository
+          type: string
+        - name: pull_number
+          placeholder: e.g. 1234
+          title: Pull request number
+          type: string
+        payload:
+          action: manual
+          pull_number: "{{ parameters.pull_number }}"
+          repository: "{{ parameters.repository }}"
+    id: trigger-check-pr
+    name: Check PR
     position:
       x: 760
-      "y": 920
+      "y": 560
+    type: TYPE_TRIGGER
+  - component: github.publishCommitStatus
+    configuration:
+      context: PR Risk Review
+      description: '{{ $["Evaluate PR risk"].data.result.reason }}'
+      repository: '{{ $["Evaluate PR risk"].data.result.repository_name }}'
+      sha: '{{ $["Evaluate PR risk"].data.result.head_sha }}'
+      state: failure
+    id: github-publishcommitstatus-publish-failure-status-fa5c93
+    integration:
+      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
+    name: Publish failure status
+    position:
+      x: 6520
+      "y": 740
     type: TYPE_ACTION
   - component: github.addPullRequestReviewers
     configuration:
@@ -99,6 +128,71 @@ spec:
       x: 4600
       "y": 650
     type: TYPE_ACTION
+  - component: github.onPullRequest
+    configuration:
+      actions:
+      - opened
+      - synchronize
+      - reopened
+      repository: superplane
+    id: trigger-on-pull-request
+    integration:
+      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
+    metadata:
+      repository:
+        id: 979560403.0
+        name: superplane
+        url: https://github.com/superplanehq/superplane
+    name: On Pull Request
+    position:
+      x: 120
+      "y": 380
+    type: TYPE_TRIGGER
+  - component: if
+    configuration:
+      expression: '{{ $["Evaluate PR risk"].data.result.notify_discord == true }}'
+    id: if-should-notify-discord
+    name: Notify Discord?
+    position:
+      x: 2680
+      "y": 560
+    type: TYPE_ACTION
+  - component: github.onPRReviewComment
+    configuration:
+      repository: superplane
+    id: trigger-on-pr-review
+    integration:
+      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
+    metadata:
+      repository:
+        id: 979560403.0
+        name: superplane
+        url: https://github.com/superplanehq/superplane
+    name: On PR Review
+    position:
+      x: 120
+      "y": 740
+    type: TYPE_TRIGGER
+  - component: if
+    configuration:
+      expression: '{{ (root().data.action == "opened" || root().data.action == "manual"
+        || root().data.manual == true) && len($["Evaluate PR risk"].data.result.reviewers_to_request)
+        > 0 }}'
+    id: if-should-request-reviewers
+    name: Should request reviewers?
+    position:
+      x: 3960
+      "y": 560
+    type: TYPE_ACTION
+  - component: if
+    configuration:
+      expression: '{{ root().data.action == "submitted" }}'
+    id: if-should-check-review
+    name: Should check review?
+    position:
+      x: 760
+      "y": 920
+    type: TYPE_ACTION
   - component: runnerJS
     configuration:
       enable_setup_commands: true
@@ -110,7 +204,7 @@ spec:
         value: claude-opus-4-6
         valueSource: literal
       - name: BEDROCK_MODEL_ID
-        value: anthropic.claude-opus-4-6-v1
+        value: us.anthropic.claude-opus-4-6-v1
         valueSource: literal
       - name: CODEX_MODEL
         value: gpt-5.3-codex
@@ -136,24 +230,25 @@ spec:
         const os = require("os");
         const path = require("path");
         // fs is injected by the SuperPlane runner wrapper
-        
+
         const CODEOWNERS_PATH = "codeowners.yml";
         const MAIN_BRANCHES = ["main", "master"];
         const MAX_DIFF_CHARS = 60000;
         const DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-6";
-        const DEFAULT_BEDROCK_MODEL = "anthropic.claude-opus-4-6-v1";
+        const DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-opus-4-6-v1";
+        const BEDROCK_INFERENCE_PREFIXES = ["global.", "us.", "eu.", "jp.", "au."];
         const DEFAULT_CODEX_MODEL = "gpt-5.3-codex";
-        
+
         function log(msg) {
           console.log(msg);
         }
-        
+
         function nodeData(payload, name) {
           const entry = payload[name] || {};
           const data = entry.data || {};
           return data && typeof data === "object" ? data : {};
         }
-        
+
         function normalizeRepo(value) {
           let repo = String(value || "").trim();
           for (const prefix of ["https://github.com/", "http://github.com/"]) {
@@ -162,7 +257,7 @@ spec:
           if (repo.toLowerCase().endsWith(".git")) repo = repo.slice(0, -4);
           return repo.replace(/^\/+|\/+$/g, "");
         }
-        
+
         async function githubRequest(url) {
           const headers = {
             Accept: "application/vnd.github+json",
@@ -178,7 +273,7 @@ spec:
           }
           return response.json();
         }
-        
+
         async function resolveEvent(payload) {
           const manual = nodeData(payload, "Check PR");
           if (manual.pull_number) {
@@ -199,14 +294,14 @@ spec:
               },
             };
           }
-        
+
           for (const name of ["On Pull Request", "On PR Review"]) {
             const data = nodeData(payload, name);
             if (data && Object.keys(data).length) return data;
           }
           return {};
         }
-        
+
         function runCmd(args, cwd, check) {
           const mustCheck = check !== false;
           try {
@@ -227,13 +322,13 @@ spec:
             return err.stdout || "";
           }
         }
-        
+
         function cloneUrl(repo) {
           const token = String(process.env.GITHUB_TOKEN || "").trim();
           if (token) return "https://x-access-token:" + token + "@github.com/" + repo + ".git";
           return "https://github.com/" + repo + ".git";
         }
-        
+
         function readCodeowners(repoDir, baseBranch) {
           const candidates = [];
           for (const branch of [baseBranch, "main", "master"]) {
@@ -248,7 +343,7 @@ spec:
           }
           return ["", ""];
         }
-        
+
         function extractJsonObject(text) {
           let raw = String(text || "").trim();
           if (!raw) throw new Error("empty model response");
@@ -259,7 +354,7 @@ spec:
           if (start === -1 || end === -1) throw new Error("no JSON object in model response");
           return JSON.parse(raw.slice(start, end + 1));
         }
-        
+
         function normalizeLlmReview(parsed) {
           let riskScore = parseInt(parsed.risk_score, 10) || 0;
           riskScore = Math.max(0, Math.min(100, riskScore));
@@ -291,7 +386,7 @@ spec:
             recommended_reviewers: cleanReviewers,
           };
         }
-        
+
         function reviewJsonSchemaExample() {
           return JSON.stringify(
             {
@@ -306,7 +401,7 @@ spec:
             2,
           );
         }
-        
+
         function buildReviewPrompt(
           repo,
           prNumber,
@@ -347,7 +442,7 @@ spec:
             reviewJsonSchemaExample()
           );
         }
-        
+
         function resolveLlmProvider() {
           const explicit = String(process.env.LLM_PROVIDER || "").trim().toLowerCase();
           const aliases = {
@@ -372,7 +467,27 @@ spec:
             "No LLM provider configured. Set LLM_PROVIDER to anthropic, bedrock, or codex and add matching credentials.",
           );
         }
-        
+
+        function hasBedrockInferencePrefix(modelId) {
+          return BEDROCK_INFERENCE_PREFIXES.some((prefix) => modelId.startsWith(prefix));
+        }
+
+        function bedrockInferencePrefixFromRegion(region) {
+          const explicit = String(process.env.BEDROCK_INFERENCE_PROFILE_PREFIX || "").trim();
+          if (explicit) return explicit.endsWith(".") ? explicit : explicit + ".";
+          const r = String(region || "").trim().toLowerCase();
+          if (r.startsWith("eu-")) return "eu.";
+          if (r === "ap-northeast-1") return "jp.";
+          if (r.startsWith("ap-southeast-")) return "au.";
+          return "us.";
+        }
+
+        function resolveBedrockModelId(modelId, region) {
+          const model = String(modelId || "").trim();
+          if (!model || hasBedrockInferencePrefix(model)) return model;
+          return bedrockInferencePrefixFromRegion(region) + model;
+        }
+
         function resolveModel(provider) {
           const generic = String(process.env.LLM_MODEL || "").trim();
           if (generic) return generic;
@@ -392,14 +507,14 @@ spec:
             DEFAULT_CODEX_MODEL
           );
         }
-        
+
         function parseLlmResponse(text, providerLabel) {
           if (!String(text || "").trim()) {
             throw new Error(providerLabel + " returned an empty response");
           }
           return normalizeLlmReview(extractJsonObject(text));
         }
-        
+
         async function callAnthropic(prompt, systemMessage) {
           const apiKey = String(process.env.ANTHROPIC_API_KEY || "").trim();
           if (!apiKey) throw new Error("ANTHROPIC_API_KEY is required when LLM_PROVIDER=anthropic.");
@@ -428,11 +543,11 @@ spec:
           }
           return { review: parseLlmResponse(parts.join("\n").trim(), "Anthropic API"), model: model };
         }
-        
+
         async function callBedrock(prompt, systemMessage) {
           const region = String(process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "").trim();
           if (!region) throw new Error("AWS_REGION is required when LLM_PROVIDER=bedrock.");
-          const model = resolveModel("bedrock");
+          const model = resolveBedrockModelId(resolveModel("bedrock"), region);
           const { BedrockRuntimeClient, InvokeModelCommand } = require("@aws-sdk/client-bedrock-runtime");
           const client = new BedrockRuntimeClient({ region: region });
           const response = await client.send(
@@ -457,7 +572,7 @@ spec:
           if (!text && payload.completion) text = String(payload.completion).trim();
           return { review: parseLlmResponse(text, "Amazon Bedrock"), model: model };
         }
-        
+
         async function callCodex(prompt, systemMessage) {
           const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
           if (!apiKey) throw new Error("OPENAI_API_KEY is required when LLM_PROVIDER=codex.");
@@ -487,14 +602,14 @@ spec:
           const text = choice && choice.message ? String(choice.message.content || "").trim() : "";
           return { review: parseLlmResponse(text, "OpenAI Codex"), model: model };
         }
-        
+
         async function callLlm(prompt, systemMessage) {
           const provider = resolveLlmProvider();
           if (provider === "anthropic") return Object.assign({ provider: provider }, await callAnthropic(prompt, systemMessage));
           if (provider === "bedrock") return Object.assign({ provider: provider }, await callBedrock(prompt, systemMessage));
           return Object.assign({ provider: provider }, await callCodex(prompt, systemMessage));
         }
-        
+
         async function main() {
           const event = await resolveEvent($);
           const pr = event.pull_request || {};
@@ -503,16 +618,16 @@ spec:
           const prNumber = pr.number;
           const action = event.action || "";
           const isManual = event.manual === true || action === "manual";
-        
+
           if (!repo || !prNumber) {
             throw new Error("Missing repository or pull request number in trigger payload.");
           }
-        
+
           const baseBranch = String((pr.base && pr.base.ref) || "");
           const headSha = String((pr.head && pr.head.sha) || "");
           const author = String((pr.user && pr.user.login) || "");
           const title = String(pr.title || "");
-        
+
           if (MAIN_BRANCHES.indexOf(baseBranch.toLowerCase()) === -1 && !isManual) {
             return {
               skipped: true,
@@ -527,7 +642,7 @@ spec:
               reason: "PR risk review only applies to pull requests targeting main or master.",
             };
           }
-        
+
           const workdir = fs.mkdtempSync(path.join(os.tmpdir(), "pr-risk-review-"));
           const repoDir = path.join(workdir, "repo");
           let diffText = "";
@@ -536,21 +651,21 @@ spec:
           let changedFilesCount = 0;
           let codeownersText = "";
           let policyBranch = "";
-        
+
           try {
             log("Cloning " + repo);
             runCmd(["git", "clone", cloneUrl(repo), repoDir]);
             runCmd(["git", "fetch", "--depth", "100", "origin", baseBranch || "main"], repoDir);
             runCmd(["git", "fetch", "--depth", "100", "origin", headSha], repoDir);
             runCmd(["git", "checkout", "--detach", headSha], repoDir);
-        
+
             const baseRef = "origin/" + (baseBranch || "main");
             statText = runCmd(["git", "diff", baseRef + "...HEAD", "--stat"], repoDir, false);
             diffText = runCmd(["git", "diff", baseRef + "...HEAD"], repoDir, false);
             if (diffText.length > MAX_DIFF_CHARS) {
               diffText = diffText.slice(0, MAX_DIFF_CHARS) + "\n\n[diff truncated for review]";
             }
-        
+
             const namesOut = runCmd(["git", "diff", baseRef + "...HEAD", "--name-only"], repoDir, false);
             const names = String(namesOut || "")
               .split("\n")
@@ -563,7 +678,7 @@ spec:
             if (names.length > 200) {
               changedFilesList += "\n... and " + String(names.length - 200) + " more files";
             }
-        
+
             const codeownersResult = readCodeowners(repoDir, baseBranch);
             codeownersText = codeownersResult[0];
             policyBranch = codeownersResult[1];
@@ -571,7 +686,7 @@ spec:
           } finally {
             fs.rmSync(workdir, { recursive: true, force: true });
           }
-        
+
           const provider = resolveLlmProvider();
           log("Calling LLM via " + provider);
           const prompt = buildReviewPrompt(
@@ -601,7 +716,7 @@ spec:
               " approved=" +
               llmReview.approved,
           );
-        
+
           return {
             skipped: false,
             repository: repo,
@@ -628,8 +743,8 @@ spec:
     id: review-pr
     name: Review PR
     position:
-      x: 1440
-      "y": 576
+      x: 1400
+      "y": 560
     type: TYPE_ACTION
   - component: github.publishCommitStatus
     configuration:
@@ -637,14 +752,40 @@ spec:
       description: '{{ $["Evaluate PR risk"].data.result.reason }}'
       repository: '{{ $["Evaluate PR risk"].data.result.repository_name }}'
       sha: '{{ $["Evaluate PR risk"].data.result.head_sha }}'
-      state: failure
-    id: github-publishcommitstatus-publish-failure-status-fa5c93
+      state: success
+    id: publish-success-status
     integration:
       id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
-    name: Publish failure status
+    name: Publish success status
     position:
       x: 6520
-      "y": 740
+      "y": 380
+    type: TYPE_ACTION
+  - component: if
+    configuration:
+      expression: '{{ $["Evaluate PR risk"].data.result.valid == true }}'
+    id: if-satisfied
+    name: Satisfied?
+    position:
+      x: 5880
+      "y": 560
+    type: TYPE_ACTION
+  - component: discord.sendTextMessage
+    configuration:
+      channel: '1518301668758782022'
+      content: '{{ $["Evaluate PR risk"].data.result.discord_message }}'
+    id: discord-notify-review
+    integration:
+      id: 8687b0b7-6482-43fe-b1cd-67b679985928
+    metadata:
+      channel:
+        id: '1518301668758782022'
+        name: "\U0001F440︱gh-pull-request-stream"
+      hasEmbed: false
+    name: Discord review posted
+    position:
+      x: 3320
+      "y": 650
     type: TYPE_ACTION
   - component: upsertMemory
     configuration:
@@ -697,62 +838,6 @@ spec:
       x: 5240
       "y": 560
     type: TYPE_ACTION
-  - component: start
-    configuration:
-      templates:
-      - name: run
-        parameters:
-        - name: repository
-          placeholder: e.g. superplanehq/superplane
-          title: Repository
-          type: string
-        - name: pull_number
-          placeholder: e.g. 1234
-          title: Pull request number
-          type: string
-        payload:
-          action: manual
-          pull_number: "{{ parameters.pull_number }}"
-          repository: "{{ parameters.repository }}"
-    id: trigger-check-pr
-    name: Check PR
-    position:
-      x: 760
-      "y": 560
-    type: TYPE_TRIGGER
-  - component: if
-    configuration:
-      expression: '{{ $["Evaluate PR risk"].data.result.notify_discord == true }}'
-    id: if-should-notify-discord
-    name: Notify Discord?
-    position:
-      x: 2680
-      "y": 560
-    type: TYPE_ACTION
-  - component: github.publishCommitStatus
-    configuration:
-      context: PR Risk Review
-      description: '{{ $["Evaluate PR risk"].data.result.reason }}'
-      repository: '{{ $["Evaluate PR risk"].data.result.repository_name }}'
-      sha: '{{ $["Evaluate PR risk"].data.result.head_sha }}'
-      state: success
-    id: publish-success-status
-    integration:
-      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
-    name: Publish success status
-    position:
-      x: 6520
-      "y": 380
-    type: TYPE_ACTION
-  - component: if
-    configuration:
-      expression: '{{ $["Evaluate PR risk"].data.result.valid == true }}'
-    id: if-satisfied
-    name: Satisfied?
-    position:
-      x: 5880
-      "y": 560
-    type: TYPE_ACTION
   - component: if
     configuration:
       expression: '{{ root().data.action == "opened" || root().data.action == "synchronize"
@@ -763,43 +848,9 @@ spec:
       x: 760
       "y": 200
     type: TYPE_ACTION
-  - component: discord.sendTextMessage
-    configuration:
-      channel: '1518301668758782022'
-      content: '{{ $["Evaluate PR risk"].data.result.discord_message }}'
-    id: discord-notify-review
-    integration:
-      id: 8687b0b7-6482-43fe-b1cd-67b679985928
-    metadata:
-      channel:
-        id: '1518301668758782022'
-        name: "\U0001F440︱gh-pull-request-stream"
-      hasEmbed: false
-    name: Discord review posted
-    position:
-      x: 3320
-      "y": 650
-    type: TYPE_ACTION
-  - component: if
-    configuration:
-      expression: '{{ (root().data.action == "opened" || root().data.action == "manual"
-        || root().data.manual == true) && len($["Evaluate PR risk"].data.result.reviewers_to_request)
-        > 0 }}'
-    id: if-should-request-reviewers
-    name: Should request reviewers?
-    position:
-      x: 3960
-      "y": 560
-    type: TYPE_ACTION
   - component: runnerJS
     configuration:
       enable_setup_commands: true
-      environment:
-      - name: GITHUB_TOKEN
-        secret:
-          key: GITHUB_TOKEN
-          secret: GITHUB_TOKEN
-        valueSource: secret
       execution_mode: host
       execution_timeout_seconds: 300
       machine_type: e1-tiny-arm64
@@ -1468,42 +1519,6 @@ spec:
     id: check-codeowners
     name: Evaluate PR risk
     position:
-      x: 2064
-      "y": 576
+      x: 2040
+      "y": 560
     type: TYPE_ACTION
-  - component: github.onPullRequest
-    configuration:
-      actions:
-      - opened
-      - synchronize
-      - reopened
-      repository: superplane
-    id: trigger-on-pull-request
-    integration:
-      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
-    metadata:
-      repository:
-        id: 979560403.0
-        name: superplane
-        url: https://github.com/superplanehq/superplane
-    name: On Pull Request
-    position:
-      x: 120
-      "y": 380
-    type: TYPE_TRIGGER
-  - component: github.onPRReviewComment
-    configuration:
-      repository: superplane
-    id: trigger-on-pr-review
-    integration:
-      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
-    metadata:
-      repository:
-        id: 979560403.0
-        name: superplane
-        url: https://github.com/superplanehq/superplane
-    name: On PR Review
-    position:
-      x: 120
-      "y": 740
-    type: TYPE_TRIGGER

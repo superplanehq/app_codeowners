@@ -26,7 +26,7 @@ Set **`LLM_PROVIDER`** on the **Review PR** node to one of:
 | Provider | `LLM_PROVIDER` | Credentials | Default model |
 |---|---|---|---|
 | Anthropic (Claude) | `anthropic` | `ANTHROPIC_API_KEY` secret | `claude-opus-4-6` |
-| Amazon Bedrock | `bedrock` | **`AWS_REGION`** + model access; optional secrets **`AWS_ACCESS_KEY_ID`**, **`AWS_SECRET_ACCESS_KEY`**, **`AWS_SESSION_TOKEN`** (omit if runner has an IAM role) | `anthropic.claude-opus-4-6-v1` |
+| Amazon Bedrock | `bedrock` | **`AWS_REGION`** + model access; optional secrets **`AWS_ACCESS_KEY_ID`**, **`AWS_SECRET_ACCESS_KEY`**, **`AWS_SESSION_TOKEN`** (omit if runner has an IAM role) | `us.anthropic.claude-opus-4-6-v1` (inference profile; bare `anthropic.*` IDs are auto-prefixed from region) |
 | OpenAI Codex | `codex` | `OPENAI_API_KEY` secret | `gpt-5.3-codex` |
 
 Override models with **`ANTHROPIC_MODEL`**, **`BEDROCK_MODEL_ID`**, or **`CODEX_MODEL`**. Any provider accepts a generic **`LLM_MODEL`** override.

@@ -7,7 +7,8 @@ const CODEOWNERS_PATH = "codeowners.yml";
 const MAIN_BRANCHES = ["main", "master"];
 const MAX_DIFF_CHARS = 60000;
 const DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-6";
-const DEFAULT_BEDROCK_MODEL = "anthropic.claude-opus-4-6-v1";
+const DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-opus-4-6-v1";
+const BEDROCK_INFERENCE_PREFIXES = ["global.", "us.", "eu.", "jp.", "au."];
 const DEFAULT_CODEX_MODEL = "gpt-5.3-codex";
 
 function log(msg) {
@@ -239,6 +240,26 @@ function resolveLlmProvider() {
   );
 }
 
+function hasBedrockInferencePrefix(modelId) {
+  return BEDROCK_INFERENCE_PREFIXES.some((prefix) => modelId.startsWith(prefix));
+}
+
+function bedrockInferencePrefixFromRegion(region) {
+  const explicit = String(process.env.BEDROCK_INFERENCE_PROFILE_PREFIX || "").trim();
+  if (explicit) return explicit.endsWith(".") ? explicit : explicit + ".";
+  const r = String(region || "").trim().toLowerCase();
+  if (r.startsWith("eu-")) return "eu.";
+  if (r === "ap-northeast-1") return "jp.";
+  if (r.startsWith("ap-southeast-")) return "au.";
+  return "us.";
+}
+
+function resolveBedrockModelId(modelId, region) {
+  const model = String(modelId || "").trim();
+  if (!model || hasBedrockInferencePrefix(model)) return model;
+  return bedrockInferencePrefixFromRegion(region) + model;
+}
+
 function resolveModel(provider) {
   const generic = String(process.env.LLM_MODEL || "").trim();
   if (generic) return generic;
@@ -298,7 +319,7 @@ async function callAnthropic(prompt, systemMessage) {
 async function callBedrock(prompt, systemMessage) {
   const region = String(process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "").trim();
   if (!region) throw new Error("AWS_REGION is required when LLM_PROVIDER=bedrock.");
-  const model = resolveModel("bedrock");
+  const model = resolveBedrockModelId(resolveModel("bedrock"), region);
   const { BedrockRuntimeClient, InvokeModelCommand } = require("@aws-sdk/client-bedrock-runtime");
   const client = new BedrockRuntimeClient({ region: region });
   const response = await client.send(
