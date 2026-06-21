@@ -2,9 +2,10 @@
 apiVersion: v1
 kind: Canvas
 metadata:
-  description: Enforce codeowners.yml approval on pull requests with self-approval
-    support.
-  name: app-codeowners
+  description: LLM pull request risk review with optional codeowners.yml owner approval.
+  id: 48ed089a-5d5c-4ca2-b360-81a437a3be4c
+  name: pr-risk-review
+  organizationId: 3ee1aa47-3a60-4c1f-b645-0b9859ab91f8
 spec:
   edges:
   - channel: default
@@ -12,15 +13,30 @@ spec:
     targetId: if-should-check-pr
   - channel: 'true'
     sourceId: if-should-check-pr
-    targetId: check-codeowners
+    targetId: review-pr
   - channel: default
     sourceId: trigger-on-pr-review
     targetId: if-should-check-review
+  - channel: default
+    sourceId: trigger-check-pr
+    targetId: review-pr
   - channel: 'true'
     sourceId: if-should-check-review
+    targetId: review-pr
+  - channel: passed
+    sourceId: review-pr
     targetId: check-codeowners
   - channel: passed
     sourceId: check-codeowners
+    targetId: if-should-notify-discord
+  - channel: 'true'
+    sourceId: if-should-notify-discord
+    targetId: discord-notify-review
+  - channel: 'false'
+    sourceId: if-should-notify-discord
+    targetId: if-should-request-reviewers
+  - channel: default
+    sourceId: discord-notify-review
     targetId: if-should-request-reviewers
   - channel: 'true'
     sourceId: if-should-request-reviewers
@@ -39,65 +55,702 @@ spec:
     targetId: publish-success-status
   - channel: 'false'
     sourceId: if-satisfied
-    targetId: publish-failure-status
+    targetId: github-publishcommitstatus-publish-failure-status-fa5c93
   nodes:
   - component: if
     configuration:
-      expression: '{{ root().data.action == "opened" && len($["Check code owners"].data.result.reviewers_to_request)
-        > 0 }}'
-    id: if-should-request-reviewers
-    name: Should request reviewers?
+      expression: '{{ root().data.action == "submitted" }}'
+    id: if-should-check-review
+    name: Should check review?
     position:
-      x: 1720
-      "y": 380
+      x: 760
+      "y": 920
     type: TYPE_ACTION
   - component: github.addPullRequestReviewers
     configuration:
-      pullNumber: '{{ root().data.pull_request.number }}'
-      repository: '{{ root().data.repository.name }}'
+      pullNumber: '{{ $["Evaluate PR risk"].data.result.pr_number }}'
+      repository: '{{ $["Evaluate PR risk"].data.result.repository_name }}'
       reviewers:
-      - '{{ len($["Check code owners"].data.result.reviewers_to_request) > 0 ? $["Check
-        code owners"].data.result.reviewers_to_request[0] : "" }}'
-      - '{{ len($["Check code owners"].data.result.reviewers_to_request) > 1 ? $["Check
-        code owners"].data.result.reviewers_to_request[1] : "" }}'
-      - '{{ len($["Check code owners"].data.result.reviewers_to_request) > 2 ? $["Check
-        code owners"].data.result.reviewers_to_request[2] : "" }}'
-      - '{{ len($["Check code owners"].data.result.reviewers_to_request) > 3 ? $["Check
-        code owners"].data.result.reviewers_to_request[3] : "" }}'
-      - '{{ len($["Check code owners"].data.result.reviewers_to_request) > 4 ? $["Check
-        code owners"].data.result.reviewers_to_request[4] : "" }}'
-      - '{{ len($["Check code owners"].data.result.reviewers_to_request) > 5 ? $["Check
-        code owners"].data.result.reviewers_to_request[5] : "" }}'
-    errorMessage: integration is required
+      - '{{ len($["Evaluate PR risk"].data.result.reviewers_to_request) > 0 ? $["Evaluate
+        PR risk"].data.result.reviewers_to_request[0] : "" }}'
+      - '{{ len($["Evaluate PR risk"].data.result.reviewers_to_request) > 1 ? $["Evaluate
+        PR risk"].data.result.reviewers_to_request[1] : "" }}'
+      - '{{ len($["Evaluate PR risk"].data.result.reviewers_to_request) > 2 ? $["Evaluate
+        PR risk"].data.result.reviewers_to_request[2] : "" }}'
+      - '{{ len($["Evaluate PR risk"].data.result.reviewers_to_request) > 3 ? $["Evaluate
+        PR risk"].data.result.reviewers_to_request[3] : "" }}'
+      - '{{ len($["Evaluate PR risk"].data.result.reviewers_to_request) > 4 ? $["Evaluate
+        PR risk"].data.result.reviewers_to_request[4] : "" }}'
+      - '{{ len($["Evaluate PR risk"].data.result.reviewers_to_request) > 5 ? $["Evaluate
+        PR risk"].data.result.reviewers_to_request[5] : "" }}'
+      - '{{ len($["Evaluate PR risk"].data.result.reviewers_to_request) > 6 ? $["Evaluate
+        PR risk"].data.result.reviewers_to_request[6] : "" }}'
+      - '{{ len($["Evaluate PR risk"].data.result.reviewers_to_request) > 7 ? $["Evaluate
+        PR risk"].data.result.reviewers_to_request[7] : "" }}'
+      - '{{ len($["Evaluate PR risk"].data.result.reviewers_to_request) > 8 ? $["Evaluate
+        PR risk"].data.result.reviewers_to_request[8] : "" }}'
+      - '{{ len($["Evaluate PR risk"].data.result.reviewers_to_request) > 9 ? $["Evaluate
+        PR risk"].data.result.reviewers_to_request[9] : "" }}'
     id: add-pull-request-reviewers
+    integration:
+      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
     name: Add pull request reviewers
     position:
-      x: 1880
+      x: 4600
+      "y": 650
+    type: TYPE_ACTION
+  - component: runnerJS
+    configuration:
+      enable_setup_commands: true
+      environment:
+      - name: LLM_PROVIDER
+        value: anthropic
+        valueSource: literal
+      - name: ANTHROPIC_MODEL
+        value: claude-opus-4-8
+        valueSource: literal
+      - name: BEDROCK_MODEL_ID
+        value: anthropic.claude-opus-4-8
+        valueSource: literal
+      - name: CODEX_MODEL
+        value: gpt-5.3-codex
+        valueSource: literal
+      - name: AWS_REGION
+        value: us-east-1
+        valueSource: literal
+      - name: AWS_ACCESS_KEY_ID
+        secret:
+          key: AWS_ACCESS_KEY_ID
+          secret: app-codeowners
+        valueSource: secret
+      - name: AWS_SECRET_ACCESS_KEY
+        secret:
+          key: AWS_SECRET_ACCESS_KEY
+          secret: app-codeowners
+        valueSource: secret
+      execution_mode: host
+      execution_timeout_seconds: 900
+      machine_type: aws-standard-1
+      script: |-
+        const { execFileSync } = require("child_process");
+        const os = require("os");
+        const path = require("path");
+        // fs is injected by the SuperPlane runner wrapper
+
+        const CODEOWNERS_PATH = "codeowners.yml";
+        const MAIN_BRANCHES = ["main", "master"];
+        const MAX_DIFF_CHARS = 60000;
+        const DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-8";
+        const DEFAULT_BEDROCK_MODEL = "anthropic.claude-opus-4-8";
+        const DEFAULT_CODEX_MODEL = "gpt-5.3-codex";
+
+        function log(msg) {
+          console.log(msg);
+        }
+
+        function nodeData(payload, name) {
+          const entry = payload[name] || {};
+          const data = entry.data || {};
+          return data && typeof data === "object" ? data : {};
+        }
+
+        function normalizeRepo(value) {
+          let repo = String(value || "").trim();
+          for (const prefix of ["https://github.com/", "http://github.com/"]) {
+            if (repo.toLowerCase().startsWith(prefix)) repo = repo.slice(prefix.length);
+          }
+          if (repo.toLowerCase().endsWith(".git")) repo = repo.slice(0, -4);
+          return repo.replace(/^\/+|\/+$/g, "");
+        }
+
+        async function githubRequest(url) {
+          const headers = {
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "superplane-pr-risk-review",
+          };
+          if (process.env.GITHUB_TOKEN) {
+            headers.Authorization = "Bearer " + process.env.GITHUB_TOKEN;
+          }
+          const response = await fetch(url, { headers });
+          if (!response.ok) {
+            throw new Error("GitHub API error " + response.status + ": " + (await response.text()));
+          }
+          return response.json();
+        }
+
+        async function resolveEvent(payload) {
+          const manual = nodeData(payload, "Check PR");
+          if (manual.pull_number) {
+            const repo = normalizeRepo(manual.repository);
+            if (!repo) {
+              throw new Error("Manual check requires repository (owner/repo) and pull request number.");
+            }
+            const prNumber = String(manual.pull_number).trim();
+            const pr = await githubRequest("https://api.github.com/repos/" + repo + "/pulls/" + prNumber);
+            const parts = repo.split("/");
+            return {
+              action: "manual",
+              manual: true,
+              pull_request: pr,
+              repository: {
+                full_name: repo,
+                name: parts.length > 1 ? parts[parts.length - 1] : repo,
+              },
+            };
+          }
+
+          for (const name of ["On Pull Request", "On PR Review"]) {
+            const data = nodeData(payload, name);
+            if (data && Object.keys(data).length) return data;
+          }
+          return {};
+        }
+
+        function runCmd(args, cwd, check) {
+          const mustCheck = check !== false;
+          try {
+            return execFileSync(args[0], args.slice(1), {
+              cwd: cwd,
+              encoding: "utf8",
+              stdio: ["ignore", "pipe", "pipe"],
+            });
+          } catch (err) {
+            if (mustCheck) {
+              throw new Error(
+                "command failed: " +
+                  args.join(" ") +
+                  "\n" +
+                  (err.stderr || err.stdout || err.message),
+              );
+            }
+            return err.stdout || "";
+          }
+        }
+
+        function cloneUrl(repo) {
+          const token = String(process.env.GITHUB_TOKEN || "").trim();
+          if (token) return "https://x-access-token:" + token + "@github.com/" + repo + ".git";
+          return "https://github.com/" + repo + ".git";
+        }
+
+        function readCodeowners(repoDir, baseBranch) {
+          const candidates = [];
+          for (const branch of [baseBranch, "main", "master"]) {
+            if (branch && candidates.indexOf(branch) === -1) candidates.push(branch);
+          }
+          for (const ref of candidates) {
+            for (const prefix of ["origin/", ""]) {
+              const spec = prefix + ref + ":" + CODEOWNERS_PATH;
+              const out = runCmd(["git", "show", spec], repoDir, false);
+              if (String(out || "").trim()) return [String(out), ref];
+            }
+          }
+          return ["", ""];
+        }
+
+        function extractJsonObject(text) {
+          let raw = String(text || "").trim();
+          if (!raw) throw new Error("empty model response");
+          const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+          if (fence) raw = fence[1].trim();
+          const start = raw.indexOf("{");
+          const end = raw.lastIndexOf("}");
+          if (start === -1 || end === -1) throw new Error("no JSON object in model response");
+          return JSON.parse(raw.slice(start, end + 1));
+        }
+
+        function normalizeLlmReview(parsed) {
+          let riskScore = parseInt(parsed.risk_score, 10) || 0;
+          riskScore = Math.max(0, Math.min(100, riskScore));
+          let riskLevel = String(parsed.risk_level || "").toLowerCase();
+          if (riskLevel !== "low" && riskLevel !== "medium" && riskLevel !== "high") {
+            riskLevel = riskScore >= 60 ? "high" : riskScore >= 30 ? "medium" : "low";
+          }
+          const approved = parsed.approved === true || String(parsed.approved).toLowerCase() === "true";
+          const summary = String(parsed.summary || "").trim();
+          let concerns = parsed.concerns || [];
+          if (typeof concerns === "string") concerns = concerns.trim() ? [concerns] : [];
+          else if (!Array.isArray(concerns)) concerns = [String(concerns)];
+          let reviewers = parsed.recommended_reviewers || [];
+          if (typeof reviewers === "string") reviewers = reviewers.trim() ? [reviewers] : [];
+          else if (!Array.isArray(reviewers)) reviewers = [String(reviewers)];
+          const cleanReviewers = [];
+          for (const entry of reviewers) {
+            const login = String(entry).trim().replace(/^@/, "").toLowerCase();
+            if (login) cleanReviewers.push(login);
+          }
+          return {
+            risk_score: riskScore,
+            risk_level: riskLevel,
+            approved: approved,
+            summary: summary,
+            concerns: concerns.map(String).map(function (c) {
+              return c.trim();
+            }).filter(Boolean),
+            recommended_reviewers: cleanReviewers,
+          };
+        }
+
+        function reviewJsonSchemaExample() {
+          return JSON.stringify(
+            {
+              risk_score: 0,
+              risk_level: "low",
+              approved: true,
+              summary: "one sentence",
+              concerns: ["..."],
+              recommended_reviewers: ["github-username"],
+            },
+            null,
+            2,
+          );
+        }
+
+        function buildReviewPrompt(
+          repo,
+          prNumber,
+          title,
+          author,
+          baseBranch,
+          headSha,
+          changedFilesList,
+          codeownersText,
+          diffStat,
+          diffText,
+        ) {
+          return (
+            "Review this pull request and respond with ONLY valid JSON (no markdown fences).\n\n" +
+            "Repository: " +
+            repo +
+            "\nPR #" +
+            prNumber +
+            ": " +
+            title +
+            "\nAuthor: " +
+            author +
+            "\nBase branch: " +
+            baseBranch +
+            "\nHead SHA: " +
+            headSha +
+            "\n\nChanged files:\n" +
+            (changedFilesList || "(none)") +
+            "\n\ncodeowners.yml policy (from base branch; empty if missing):\n" +
+            (codeownersText || "(none)") +
+            "\n\nDiff stat:\n" +
+            (diffStat || "(none)") +
+            "\n\nDiff:\n" +
+            (diffText || "(none)") +
+            "\n\nEvaluate security, correctness, blast radius, and compliance with codeowners.yml owner rules when present.\n" +
+            "Set approved=false when the PR should not merge yet (critical bugs, security issues, missing tests for risky changes, or clear codeowners policy violations).\n\n" +
+            "JSON schema:\n" +
+            reviewJsonSchemaExample()
+          );
+        }
+
+        function resolveLlmProvider() {
+          const explicit = String(process.env.LLM_PROVIDER || "").trim().toLowerCase();
+          const aliases = {
+            anthropic: "anthropic",
+            claude: "anthropic",
+            bedrock: "bedrock",
+            aws: "bedrock",
+            codex: "codex",
+            openai: "codex",
+          };
+          if (explicit) {
+            const provider = aliases[explicit];
+            if (!provider) {
+              throw new Error("Unsupported LLM_PROVIDER " + explicit + "; use anthropic, bedrock, or codex.");
+            }
+            return provider;
+          }
+          if (String(process.env.ANTHROPIC_API_KEY || "").trim()) return "anthropic";
+          if (String(process.env.OPENAI_API_KEY || "").trim()) return "codex";
+          if (String(process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "").trim()) return "bedrock";
+          return "anthropic";
+        }
+
+        function resolveModel(provider) {
+          const generic = String(process.env.LLM_MODEL || "").trim();
+          if (generic) return generic;
+          if (provider === "anthropic") {
+            return String(process.env.ANTHROPIC_MODEL || DEFAULT_ANTHROPIC_MODEL).trim() || DEFAULT_ANTHROPIC_MODEL;
+          }
+          if (provider === "bedrock") {
+            return (
+              String(process.env.BEDROCK_MODEL_ID || "").trim() ||
+              String(process.env.ANTHROPIC_MODEL || "").trim() ||
+              DEFAULT_BEDROCK_MODEL
+            );
+          }
+          return (
+            String(process.env.CODEX_MODEL || "").trim() ||
+            String(process.env.OPENAI_MODEL || "").trim() ||
+            DEFAULT_CODEX_MODEL
+          );
+        }
+
+        function parseLlmResponse(text, providerLabel) {
+          if (!String(text || "").trim()) {
+            throw new Error(providerLabel + " returned an empty response");
+          }
+          return normalizeLlmReview(extractJsonObject(text));
+        }
+
+        async function callAnthropic(prompt, systemMessage) {
+          const apiKey = String(process.env.ANTHROPIC_API_KEY || "").trim();
+          if (!apiKey) throw new Error("ANTHROPIC_API_KEY is required when LLM_PROVIDER=anthropic.");
+          const model = resolveModel("anthropic");
+          const response = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": apiKey,
+              "anthropic-version": "2023-06-01",
+            },
+            body: JSON.stringify({
+              model: model,
+              max_tokens: 4096,
+              system: systemMessage,
+              messages: [{ role: "user", content: prompt }],
+            }),
+          });
+          if (!response.ok) {
+            throw new Error("Anthropic API error " + response.status + ": " + (await response.text()));
+          }
+          const payload = await response.json();
+          const parts = [];
+          for (const block of payload.content || []) {
+            if (block && block.text) parts.push(String(block.text));
+          }
+          return { review: parseLlmResponse(parts.join("\n").trim(), "Anthropic API"), model: model };
+        }
+
+        async function callBedrock(prompt, systemMessage) {
+          const region = String(process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "").trim();
+          if (!region) throw new Error("AWS_REGION is required when LLM_PROVIDER=bedrock.");
+          const model = resolveModel("bedrock");
+          const { BedrockRuntimeClient, InvokeModelCommand } = require("@aws-sdk/client-bedrock-runtime");
+          const client = new BedrockRuntimeClient({ region: region });
+          const response = await client.send(
+            new InvokeModelCommand({
+              modelId: model,
+              contentType: "application/json",
+              accept: "application/json",
+              body: JSON.stringify({
+                anthropic_version: "bedrock-2023-05-31",
+                max_tokens: 4096,
+                system: systemMessage,
+                messages: [{ role: "user", content: prompt }],
+              }),
+            }),
+          );
+          const payload = JSON.parse(new TextDecoder().decode(response.body));
+          const parts = [];
+          for (const block of payload.content || []) {
+            if (block && block.type === "text") parts.push(String(block.text || ""));
+          }
+          let text = parts.join("\n").trim();
+          if (!text && payload.completion) text = String(payload.completion).trim();
+          return { review: parseLlmResponse(text, "Amazon Bedrock"), model: model };
+        }
+
+        async function callCodex(prompt, systemMessage) {
+          const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
+          if (!apiKey) throw new Error("OPENAI_API_KEY is required when LLM_PROVIDER=codex.");
+          const model = resolveModel("codex");
+          const baseUrl = String(process.env.OPENAI_BASE_URL || "").trim() || "https://api.openai.com/v1";
+          const response = await fetch(baseUrl.replace(/\/$/, "") + "/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: "Bearer " + apiKey,
+            },
+            body: JSON.stringify({
+              model: model,
+              max_tokens: 4096,
+              response_format: { type: "json_object" },
+              messages: [
+                { role: "system", content: systemMessage },
+                { role: "user", content: prompt },
+              ],
+            }),
+          });
+          if (!response.ok) {
+            throw new Error("OpenAI API error " + response.status + ": " + (await response.text()));
+          }
+          const payload = await response.json();
+          const choice = (payload.choices || [])[0];
+          const text = choice && choice.message ? String(choice.message.content || "").trim() : "";
+          return { review: parseLlmResponse(text, "OpenAI Codex"), model: model };
+        }
+
+        async function callLlm(prompt, systemMessage) {
+          const provider = resolveLlmProvider();
+          if (provider === "anthropic") return Object.assign({ provider: provider }, await callAnthropic(prompt, systemMessage));
+          if (provider === "bedrock") return Object.assign({ provider: provider }, await callBedrock(prompt, systemMessage));
+          return Object.assign({ provider: provider }, await callCodex(prompt, systemMessage));
+        }
+
+        async function main() {
+          const event = await resolveEvent($);
+          const pr = event.pull_request || {};
+          const repository = event.repository || {};
+          const repo = repository.full_name || "";
+          const prNumber = pr.number;
+          const action = event.action || "";
+          const isManual = event.manual === true || action === "manual";
+
+          if (!repo || !prNumber) {
+            throw new Error("Missing repository or pull request number in trigger payload.");
+          }
+
+          const baseBranch = String((pr.base && pr.base.ref) || "");
+          const headSha = String((pr.head && pr.head.sha) || "");
+          const author = String((pr.user && pr.user.login) || "");
+          const title = String(pr.title || "");
+
+          if (MAIN_BRANCHES.indexOf(baseBranch.toLowerCase()) === -1 && !isManual) {
+            return {
+              skipped: true,
+              repository: repo,
+              repository_name: repository.name || repo.split("/").pop(),
+              pr_number: String(prNumber),
+              title: title,
+              author: author,
+              head_sha: headSha,
+              base_branch: baseBranch,
+              manual: false,
+              reason: "PR risk review only applies to pull requests targeting main or master.",
+            };
+          }
+
+          const workdir = fs.mkdtempSync(path.join(os.tmpdir(), "pr-risk-review-"));
+          const repoDir = path.join(workdir, "repo");
+          let diffText = "";
+          let statText = "";
+          let changedFilesList = "";
+          let changedFilesCount = 0;
+          let codeownersText = "";
+          let policyBranch = "";
+
+          try {
+            log("Cloning " + repo);
+            runCmd(["git", "clone", cloneUrl(repo), repoDir]);
+            runCmd(["git", "fetch", "--depth", "100", "origin", baseBranch || "main"], repoDir);
+            runCmd(["git", "fetch", "--depth", "100", "origin", headSha], repoDir);
+            runCmd(["git", "checkout", "--detach", headSha], repoDir);
+
+            const baseRef = "origin/" + (baseBranch || "main");
+            statText = runCmd(["git", "diff", baseRef + "...HEAD", "--stat"], repoDir, false);
+            diffText = runCmd(["git", "diff", baseRef + "...HEAD"], repoDir, false);
+            if (diffText.length > MAX_DIFF_CHARS) {
+              diffText = diffText.slice(0, MAX_DIFF_CHARS) + "\n\n[diff truncated for review]";
+            }
+
+            const namesOut = runCmd(["git", "diff", baseRef + "...HEAD", "--name-only"], repoDir, false);
+            const names = String(namesOut || "")
+              .split("\n")
+              .map(function (line) {
+                return line.trim();
+              })
+              .filter(Boolean);
+            changedFilesCount = names.length;
+            changedFilesList = names.slice(0, 200).join("\n");
+            if (names.length > 200) {
+              changedFilesList += "\n... and " + String(names.length - 200) + " more files";
+            }
+
+            const codeownersResult = readCodeowners(repoDir, baseBranch);
+            codeownersText = codeownersResult[0];
+            policyBranch = codeownersResult[1];
+            log("Checked out " + headSha + " (" + changedFilesCount + " files)");
+          } finally {
+            fs.rmSync(workdir, { recursive: true, force: true });
+          }
+
+          const provider = resolveLlmProvider();
+          log("Calling LLM via " + provider);
+          const prompt = buildReviewPrompt(
+            repo,
+            prNumber,
+            title,
+            author,
+            baseBranch,
+            headSha,
+            changedFilesList,
+            codeownersText,
+            statText,
+            diffText,
+          );
+          const systemMessage =
+            "You are a senior staff engineer performing pull request risk review. " +
+            "Be conservative on approval for high-risk changes. Output JSON only.";
+          const llmResult = await callLlm(prompt, systemMessage);
+          const llmReview = llmResult.review;
+          log(
+            "LLM review (" +
+              llmResult.provider +
+              "/" +
+              llmResult.model +
+              "): risk=" +
+              llmReview.risk_score +
+              " approved=" +
+              llmReview.approved,
+          );
+
+          return {
+            skipped: false,
+            repository: repo,
+            repository_name: repository.name || repo.split("/").pop(),
+            pr_number: String(prNumber),
+            title: title,
+            author: author,
+            head_sha: headSha,
+            base_branch: baseBranch,
+            manual: isManual,
+            changed_files: changedFilesCount,
+            changed_files_list: changedFilesList,
+            codeowners_text: codeownersText,
+            policy_branch: policyBranch,
+            has_codeowners: Boolean(String(codeownersText).trim()),
+            llm_provider: llmResult.provider,
+            llm_model: llmResult.model,
+            llm_review: llmReview,
+          };
+        }
+      setup_commands: 'npm install --no-save @aws-sdk/client-bedrock-runtime
+
+'
+    id: review-pr
+    name: Review PR
+    position:
+      x: 1440
+      "y": 576
+    type: TYPE_ACTION
+  - component: github.publishCommitStatus
+    configuration:
+      context: PR Risk Review
+      description: '{{ $["Evaluate PR risk"].data.result.reason }}'
+      repository: '{{ $["Evaluate PR risk"].data.result.repository_name }}'
+      sha: '{{ $["Evaluate PR risk"].data.result.head_sha }}'
+      state: failure
+    id: github-publishcommitstatus-publish-failure-status-fa5c93
+    integration:
+      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
+    name: Publish failure status
+    position:
+      x: 6520
+      "y": 740
+    type: TYPE_ACTION
+  - component: upsertMemory
+    configuration:
+      matchList:
+      - name: repository
+        value: '{{ $["Evaluate PR risk"].data.result.repository }}'
+      - name: pr_number
+        value: '{{ $["Evaluate PR risk"].data.result.pr_number }}'
+      namespace: codeownersChecks
+      valueList:
+      - name: repository
+        value: '{{ $["Evaluate PR risk"].data.result.repository }}'
+      - name: pr_number
+        value: '{{ $["Evaluate PR risk"].data.result.pr_number }}'
+      - name: title
+        value: '{{ $["Evaluate PR risk"].data.result.title }}'
+      - name: author
+        value: '{{ $["Evaluate PR risk"].data.result.author }}'
+      - name: satisfied
+        value: '{{ $["Evaluate PR risk"].data.result.satisfied == true ? "true" :
+          "false" }}'
+      - name: changed_files
+        value: '{{ $["Evaluate PR risk"].data.result.changed_files }}'
+      - name: covered_files
+        value: '{{ $["Evaluate PR risk"].data.result.covered_files }}'
+      - name: pending_files
+        value: '{{ $["Evaluate PR risk"].data.result.pending_files }}'
+      - name: pending_owners
+        value: '{{ $["Evaluate PR risk"].data.result.pending_owners }}'
+      - name: approvers
+        value: '{{ $["Evaluate PR risk"].data.result.approvers }}'
+      - name: risk_score
+        value: '{{ $["Evaluate PR risk"].data.result.risk_score }}'
+      - name: risk_level
+        value: '{{ $["Evaluate PR risk"].data.result.risk_level }}'
+      - name: recommended_reviewers
+        value: '{{ $["Evaluate PR risk"].data.result.recommended_reviewers }}'
+      - name: compliance_reviewers
+        value: '{{ $["Evaluate PR risk"].data.result.compliance_reviewers }}'
+      - name: llm_summary
+        value: '{{ $["Evaluate PR risk"].data.result.llm_summary }}'
+      - name: llm_approved
+        value: '{{ $["Evaluate PR risk"].data.result.llm_approved == true ? "true"
+          : "false" }}'
+      - name: last_checked_at
+        value: "{{ int(now().Unix()) }}"
+    id: record-check
+    name: Record check
+    position:
+      x: 5240
+      "y": 560
+    type: TYPE_ACTION
+  - component: start
+    configuration:
+      templates:
+      - name: run
+        parameters:
+        - name: repository
+          placeholder: e.g. superplanehq/superplane
+          title: Repository
+          type: string
+        - name: pull_number
+          placeholder: e.g. 1234
+          title: Pull request number
+          type: string
+        payload:
+          action: manual
+          pull_number: "{{ parameters.pull_number }}"
+          repository: "{{ parameters.repository }}"
+    id: trigger-check-pr
+    name: Check PR
+    position:
+      x: 760
+      "y": 560
+    type: TYPE_TRIGGER
+  - component: if
+    configuration:
+      expression: '{{ $["Evaluate PR risk"].data.result.notify_discord == true }}'
+    id: if-should-notify-discord
+    name: Notify Discord?
+    position:
+      x: 2680
+      "y": 560
+    type: TYPE_ACTION
+  - component: github.publishCommitStatus
+    configuration:
+      context: PR Risk Review
+      description: '{{ $["Evaluate PR risk"].data.result.reason }}'
+      repository: '{{ $["Evaluate PR risk"].data.result.repository_name }}'
+      sha: '{{ $["Evaluate PR risk"].data.result.head_sha }}'
+      state: success
+    id: publish-success-status
+    integration:
+      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
+    name: Publish success status
+    position:
+      x: 6520
       "y": 380
     type: TYPE_ACTION
   - component: if
     configuration:
-      expression: '{{ $["Check code owners"].data.result.valid == true }}'
+      expression: '{{ $["Evaluate PR risk"].data.result.valid == true }}'
     id: if-satisfied
     name: Satisfied?
     position:
-      x: 2680
-      "y": 380
+      x: 5880
+      "y": 560
     type: TYPE_ACTION
-  - component: github.onPullRequest
-    configuration:
-      actions:
-      - opened
-      - synchronize
-      - reopened
-      repository: ''
-    errorMessage: integration is required
-    id: trigger-on-pull-request
-    name: On Pull Request
-    position:
-      x: 120
-      "y": 200
-    type: TYPE_TRIGGER
   - component: if
     configuration:
       expression: '{{ root().data.action == "opened" || root().data.action == "synchronize"
@@ -108,113 +761,77 @@ spec:
       x: 760
       "y": 200
     type: TYPE_ACTION
+  - component: discord.sendTextMessage
+    configuration:
+      channel: '1518301668758782022'
+      content: '{{ $["Evaluate PR risk"].data.result.discord_message }}'
+    id: discord-notify-review
+    integration:
+      id: 8687b0b7-6482-43fe-b1cd-67b679985928
+    metadata:
+      channel:
+        id: '1518301668758782022'
+        name: "\U0001F440︱gh-pull-request-stream"
+      hasEmbed: false
+    name: Discord review posted
+    position:
+      x: 3320
+      "y": 650
+    type: TYPE_ACTION
   - component: if
     configuration:
-      expression: '{{ root().data.action == "submitted" }}'
-    id: if-should-check-review
-    name: Should check review?
+      expression: '{{ (root().data.action == "opened" || root().data.action == "manual"
+        || root().data.manual == true) && len($["Evaluate PR risk"].data.result.reviewers_to_request)
+        > 0 }}'
+    id: if-should-request-reviewers
+    name: Should request reviewers?
     position:
-      x: 760
+      x: 3960
       "y": 560
     type: TYPE_ACTION
-  - component: upsertMemory
-    configuration:
-      matchList:
-      - name: repository
-        value: "{{ root().data.repository.full_name }}"
-      - name: pr_number
-        value: "{{ root().data.pull_request.number }}"
-      namespace: codeownersChecks
-      valueList:
-      - name: repository
-        value: "{{ root().data.repository.full_name }}"
-      - name: pr_number
-        value: "{{ root().data.pull_request.number }}"
-      - name: title
-        value: "{{ root().data.pull_request.title }}"
-      - name: author
-        value: "{{ root().data.pull_request.user.login }}"
-      - name: satisfied
-        value: '{{ $["Check code owners"].data.result.satisfied == true ? "true" :
-          "false" }}'
-      - name: changed_files
-        value: '{{ $["Check code owners"].data.result.changed_files }}'
-      - name: covered_files
-        value: '{{ $["Check code owners"].data.result.covered_files }}'
-      - name: pending_files
-        value: '{{ $["Check code owners"].data.result.pending_files }}'
-      - name: pending_owners
-        value: '{{ $["Check code owners"].data.result.pending_owners }}'
-      - name: approvers
-        value: '{{ $["Check code owners"].data.result.approvers }}'
-      - name: last_checked_at
-        value: "{{ int(now().Unix()) }}"
-    id: record-check
-    name: Record check
-    position:
-      x: 2040
-      "y": 380
-    type: TYPE_ACTION
-  - component: github.publishCommitStatus
-    configuration:
-      context: Code Owners
-      description: '{{ $["Check code owners"].data.result.reason }}'
-      repository: "{{ root().data.repository.name }}"
-      sha: "{{ root().data.pull_request.head.sha }}"
-      state: success
-    errorMessage: integration is required
-    id: publish-success-status
-    name: Publish success status
-    position:
-      x: 3320
-      "y": 560
-    type: TYPE_ACTION
-  - component: github.publishCommitStatus
-    configuration:
-      context: Code Owners
-      description: '{{ $["Check code owners"].data.result.reason }}'
-      repository: "{{ root().data.repository.name }}"
-      sha: "{{ root().data.pull_request.head.sha }}"
-      state: failure
-    errorMessage: integration is required
-    id: publish-failure-status
-    name: Publish failure status
-    position:
-      x: 3320
-      "y": 200
-    type: TYPE_ACTION
-  - component: github.onPRReviewComment
-    configuration:
-      repository: ''
-    errorMessage: integration is required
-    id: trigger-on-pr-review
-    name: On PR Review
-    position:
-      x: 120
-      "y": 560
-    type: TYPE_TRIGGER
   - component: runnerJS
     configuration:
       enable_setup_commands: true
+      environment:
+      - name: GITHUB_TOKEN
+        secret:
+          key: GITHUB_TOKEN
+          secret: GITHUB_TOKEN
+        valueSource: secret
       execution_mode: host
       execution_timeout_seconds: 300
       machine_type: e1-tiny-arm64
-      script: |
+      script: |-
         const yaml = require("js-yaml");
 
         const CODEOWNERS_CONFIG_PATH = "codeowners.yml";
-        const MAIN_BRANCHES = ["main", "master"];
+        const DEFAULT_COMPLIANCE_REVIEWERS = [];
+        const COMMENT_MARKER = "<!-- superplane-pr-risk-review -->";
+        const LEGACY_COMMENT_MARKERS = ["<!-- superplane-codeowners -->"];
+        const LEGACY_COMMENT_HEADINGS = ["## PR Risk Review", "## Code Owners — Claude review"];
 
-        function isMainBranch(ref) {
-          return MAIN_BRANCHES.indexOf(String(ref || "").toLowerCase()) !== -1;
+        function nodeResult(payload, name) {
+          const entry = payload[name] || {};
+          const data = entry.data || {};
+          return data.result != null ? data.result : data;
         }
 
-        function decodeContent(content) {
-          if (!content) return "";
-          if (typeof Buffer !== "undefined") {
-            return Buffer.from(content, "base64").toString("utf8");
+        function asStringArray(value) {
+          if (value == null) return [];
+          if (Array.isArray(value)) return value;
+          if (typeof value === "string") {
+            const trimmed = value.trim();
+            return trimmed ? [trimmed] : [];
           }
-          return atob(content.replace(/\n/g, ""));
+          if (typeof value === "object") return [value];
+          return [String(value)];
+        }
+
+        function asRulesArray(value) {
+          if (value == null) return [];
+          if (Array.isArray(value)) return value;
+          if (typeof value === "object") return [value];
+          return [];
         }
 
         function escapeRegex(value) {
@@ -224,9 +841,7 @@ spec:
         function patternToRegex(pattern) {
           let source = pattern.trim();
           if (!source) return null;
-
           if (source.startsWith("/")) source = source.slice(1);
-
           let regex = "";
           for (let i = 0; i < source.length; i += 1) {
             const ch = source[i];
@@ -246,7 +861,6 @@ spec:
               regex += escapeRegex(ch);
             }
           }
-
           return new RegExp("^" + regex + "(?:/.*)?$");
         }
 
@@ -260,53 +874,47 @@ spec:
         function parseGroups(doc) {
           const groups = {};
           const raw = doc.groups || {};
-
           for (const name of Object.keys(raw)) {
             const value = raw[name];
             let members = [];
             if (Array.isArray(value)) {
               members = value;
-            } else if (value && Array.isArray(value.members)) {
-              members = value.members;
+            } else if (value && typeof value === "object" && value.members != null) {
+              members = asStringArray(value.members);
+            } else if (typeof value === "string") {
+              members = [value];
             }
-
-            const key = String(name).toLowerCase();
-            groups[key] = members
+            groups[String(name).toLowerCase()] = members
               .map(function (member) {
                 return String(member).trim().replace(/^@/, "").toLowerCase();
               })
               .filter(Boolean);
           }
-
           return groups;
+        }
+
+        function parseComplianceReviewers(doc) {
+          const list = asStringArray(
+            doc.compliance_reviewers != null ? doc.compliance_reviewers : doc.complianceReviewers,
+          );
+          return list
+            .map(function (value) {
+              return String(value).trim().replace(/^@/, "").toLowerCase();
+            })
+            .filter(Boolean);
         }
 
         function parseCodeownersYaml(text) {
           const doc = yaml.load(String(text || "")) || {};
           const groups = parseGroups(doc);
           const rules = [];
-
-          for (const rule of doc.rules || []) {
+          for (const rule of asRulesArray(doc.rules)) {
+            if (!rule || typeof rule !== "object") continue;
             const patterns = [];
             if (rule.pattern) patterns.push(String(rule.pattern));
-            if (Array.isArray(rule.patterns)) {
-              patterns.push.apply(
-                patterns,
-                rule.patterns.map(function (value) {
-                  return String(value);
-                }),
-              );
-            }
-            if (Array.isArray(rule.paths)) {
-              patterns.push.apply(
-                patterns,
-                rule.paths.map(function (value) {
-                  return String(value);
-                }),
-              );
-            }
-
-            const owners = (rule.owners || [])
+            for (const value of asStringArray(rule.patterns)) patterns.push(String(value));
+            for (const value of asStringArray(rule.paths)) patterns.push(String(value));
+            const owners = asStringArray(rule.owners)
               .map(function (value) {
                 return String(value).trim();
               })
@@ -314,32 +922,20 @@ spec:
                 return value.indexOf("@") === 0;
               });
             const selfApproval =
-              rule.self_approval === true ||
-              String(rule.self_approval || "").toLowerCase() === "true";
-
+              rule.self_approval === true || String(rule.self_approval || "").toLowerCase() === "true";
             for (const pattern of patterns) {
               if (pattern && owners.length) {
-                rules.push({
-                  pattern: pattern,
-                  owners: owners,
-                  self_approval: selfApproval,
-                });
+                rules.push({ pattern: pattern, owners: owners, self_approval: selfApproval });
               }
             }
           }
-
-          return {
-            rules: rules,
-            groups: groups,
-          };
+          return { rules: rules, groups: groups, complianceReviewers: parseComplianceReviewers(doc) };
         }
 
         function matchingRuleForFile(path, rules) {
           let match = null;
           for (const rule of rules) {
-            if (matchPattern(rule.pattern, path)) {
-              match = rule;
-            }
+            if (matchPattern(rule.pattern, path)) match = rule;
           }
           return match;
         }
@@ -347,16 +943,15 @@ spec:
         function ownerLogins(owner, groups) {
           const value = String(owner || "").trim();
           if (!value || value[0] !== "@") return [];
-
           const ref = String(value.slice(1)).toLowerCase();
-          if (groups[ref]) return groups[ref];
+          const members = groups[ref];
+          if (Array.isArray(members) && members.length) return members.slice();
           return [ref];
         }
 
         function ownerMatches(login, owners, groups) {
           const normalized = String(login || "").toLowerCase();
           if (!normalized) return false;
-
           for (const owner of owners) {
             const logins = ownerLogins(owner, groups);
             if (logins.indexOf(normalized) !== -1) return true;
@@ -364,49 +959,73 @@ spec:
           return false;
         }
 
-        function collectReviewersToRequest(changedPaths, rules, groups, author, approvers) {
+        function mergeReviewers(expertReviewers, complianceReviewers, author, approvers, maxReviewers) {
           const authorNorm = String(author || "").toLowerCase();
           const approved = {};
           for (const login of approvers || []) {
             approved[String(login).toLowerCase()] = true;
           }
-
-          const reviewers = [];
+          const merged = [];
           const seen = {};
-          for (const path of changedPaths) {
-            const matched = matchingRuleForFile(path, rules);
-            if (!matched || !matched.owners.length) continue;
-
-            for (const owner of matched.owners) {
-              for (const login of ownerLogins(owner, groups)) {
-                if (!login || login === authorNorm || approved[login] || seen[login]) {
-                  continue;
-                }
-                seen[login] = true;
-                reviewers.push(login);
-              }
+          for (const list of [complianceReviewers || [], expertReviewers || []]) {
+            for (const login of list) {
+              const normalized = String(login || "").toLowerCase().replace(/^@/, "");
+              if (!normalized || normalized === authorNorm || approved[normalized] || seen[normalized]) continue;
+              seen[normalized] = true;
+              merged.push(normalized);
+              if (merged.length >= maxReviewers) return merged;
             }
           }
-
-          return reviewers;
+          return merged;
         }
 
-        async function githubFetch(url) {
-          const headers = {
-            Accept: "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-          };
-          if (process.env.GITHUB_TOKEN) {
-            headers.Authorization = "Bearer " + process.env.GITHUB_TOKEN;
+        function parseLlmReview(text) {
+          const raw = String(text || "").trim();
+          if (!raw) {
+            return {
+              risk_score: 50,
+              risk_level: "medium",
+              approved: false,
+              summary: "Claude returned an empty review.",
+              concerns: [],
+              recommended_reviewers: [],
+            };
           }
-
-          const response = await fetch(url, { headers: headers });
-          if (!response.ok) {
-            throw new Error(
-              "GitHub API error " + response.status + ": " + (await response.text()),
-            );
+          let jsonText = raw;
+          const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+          if (fence) jsonText = fence[1].trim();
+          const start = jsonText.indexOf("{");
+          const end = jsonText.lastIndexOf("}");
+          if (start !== -1 && end !== -1) jsonText = jsonText.slice(start, end + 1);
+          try {
+            const parsed = JSON.parse(jsonText);
+            const riskScore = Math.max(0, Math.min(100, Number(parsed.risk_score) || 0));
+            let riskLevel = String(parsed.risk_level || "").toLowerCase();
+            if (riskLevel !== "low" && riskLevel !== "medium" && riskLevel !== "high") {
+              riskLevel = riskScore >= 60 ? "high" : riskScore >= 30 ? "medium" : "low";
+            }
+            return {
+              risk_score: riskScore,
+              risk_level: riskLevel,
+              approved: parsed.approved === true || String(parsed.approved).toLowerCase() === "true",
+              summary: String(parsed.summary || "").trim(),
+              concerns: asStringArray(parsed.concerns).map(String),
+              recommended_reviewers: asStringArray(parsed.recommended_reviewers)
+                .map(function (v) {
+                  return String(v).trim().replace(/^@/, "").toLowerCase();
+                })
+                .filter(Boolean),
+            };
+          } catch (error) {
+            return {
+              risk_score: 50,
+              risk_level: "medium",
+              approved: false,
+              summary: "Could not parse Claude review JSON.",
+              concerns: [raw.slice(0, 500)],
+              recommended_reviewers: [],
+            };
           }
-          return response.json();
         }
 
         async function githubFetchAll(url) {
@@ -420,19 +1039,12 @@ spec:
             if (process.env.GITHUB_TOKEN) {
               headers.Authorization = "Bearer " + process.env.GITHUB_TOKEN;
             }
-
             const response = await fetch(nextUrl, { headers: headers });
             if (!response.ok) {
-              throw new Error(
-                "GitHub API error " + response.status + ": " + (await response.text()),
-              );
+              throw new Error("GitHub API error " + response.status + ": " + (await response.text()));
             }
-
             const page = await response.json();
-            if (Array.isArray(page)) {
-              items.push.apply(items, page);
-            }
-
+            if (Array.isArray(page)) items.push.apply(items, page);
             const link = response.headers.get("link") || "";
             const match = link.match(/<([^>]+)>;\s*rel="next"/);
             nextUrl = match ? match[1] : null;
@@ -440,42 +1052,78 @@ spec:
           return items;
         }
 
-        async function fetchCodeownersConfig(repo, targetBranch) {
-          const branches = [];
-          const target = String(targetBranch || "").toLowerCase();
-          if (target === "main") {
-            branches.push("main", "master");
-          } else if (target === "master") {
-            branches.push("master", "main");
-          } else {
-            branches.push("main", "master");
+        async function githubRequest(method, url, body) {
+          const headers = {
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Content-Type": "application/json",
+          };
+          if (process.env.GITHUB_TOKEN) {
+            headers.Authorization = "Bearer " + process.env.GITHUB_TOKEN;
           }
+          const response = await fetch(url, {
+            method: method,
+            headers: headers,
+            body: body == null ? undefined : JSON.stringify(body),
+          });
+          if (!response.ok) {
+            throw new Error("GitHub API error " + response.status + ": " + (await response.text()));
+          }
+          if (response.status === 204) return null;
+          return response.json();
+        }
 
-          const seen = {};
-          for (const branch of branches) {
-            if (seen[branch]) continue;
-            seen[branch] = true;
-            try {
-              const content = await githubFetch(
-                "https://api.github.com/repos/" +
-                  repo +
-                  "/contents/" +
-                  encodeURIComponent(CODEOWNERS_CONFIG_PATH) +
-                  "?ref=" +
-                  encodeURIComponent(branch),
-              );
-              if (content && content.content) {
-                return {
-                  path: CODEOWNERS_CONFIG_PATH,
-                  text: decodeContent(content.content),
-                  policy_branch: branch,
-                };
-              }
-            } catch (error) {
-              // try the other main branch
-            }
+        function isReviewComment(body) {
+          const text = String(body || "");
+          if (text.indexOf(COMMENT_MARKER) !== -1) return true;
+          for (const marker of LEGACY_COMMENT_MARKERS) {
+            if (text.indexOf(marker) !== -1) return true;
           }
-          return null;
+          for (const heading of LEGACY_COMMENT_HEADINGS) {
+            if (text.indexOf(heading) === 0) return true;
+          }
+          return false;
+        }
+
+        async function findExistingReviewComment(repo, prNumber) {
+          const comments = await githubFetchAll(
+            "https://api.github.com/repos/" + repo + "/issues/" + prNumber + "/comments?per_page=100",
+          );
+          let found = null;
+          for (const comment of comments) {
+            if (isReviewComment(comment.body)) found = comment;
+          }
+          return found;
+        }
+
+        async function upsertReviewComment(repo, prNumber, body) {
+          const markedBody =
+            String(body || "").indexOf(COMMENT_MARKER) === 0 ? String(body || "") : COMMENT_MARKER + "\n" + String(body || "");
+          const existing = await findExistingReviewComment(repo, prNumber);
+          if (existing) {
+            const updated = await githubRequest(
+              "PATCH",
+              "https://api.github.com/repos/" + repo + "/issues/comments/" + existing.id,
+              { body: markedBody },
+            );
+            return {
+              comment_id: String(updated.id),
+              comment_url: updated.html_url || "",
+              comment_updated: true,
+              comment_posted: true,
+            };
+          }
+          const created = await githubRequest(
+            "POST",
+            "https://api.github.com/repos/" + repo + "/issues/" + prNumber + "/comments",
+            { body: markedBody },
+          );
+          return {
+            comment_id: String(created.id),
+            comment_url: created.html_url || "",
+            comment_updated: false,
+            comment_posted: true,
+          };
         }
 
         function latestApprovals(reviews) {
@@ -486,14 +1134,9 @@ spec:
             const submitted = new Date(review.submitted_at || 0).getTime();
             const existing = byUser[login];
             if (!existing || submitted >= existing.submitted) {
-              byUser[login] = {
-                login: login,
-                state: review.state,
-                submitted: submitted,
-              };
+              byUser[login] = { login: login, state: review.state, submitted: submitted };
             }
           }
-
           return Object.keys(byUser)
             .map(function (login) {
               return byUser[login];
@@ -506,88 +1149,177 @@ spec:
             });
         }
 
-        function resolveEvent() {
-          const prTrigger = ($["On Pull Request"] && $["On Pull Request"].data) || null;
-          const reviewTrigger = ($["On PR Review"] && $["On PR Review"].data) || null;
-          return prTrigger || reviewTrigger || {};
+        function truncateStatusReason(text) {
+          const value = String(text || "").trim();
+          if (value.length <= 140) return value;
+          return value.slice(0, 137) + "...";
+        }
+
+        function buildStatusReason(llm, valid, llmApproved, hasOwnerPolicy, ownersSatisfied, pendingFiles, reviewersToRequest) {
+          let reason = "Risk: " + llm.risk_score + "/100 (" + llm.risk_level + ").";
+          if (!llmApproved) {
+            reason = "Review: changes requested. " + reason;
+          } else if (valid) {
+            reason = "Approved. " + reason;
+          }
+          if (hasOwnerPolicy && !ownersSatisfied) {
+            reason = "Owners pending (" + pendingFiles.length + "). " + reason;
+          }
+          if (valid && reviewersToRequest.length) {
+            reason +=
+              " Requested " +
+              reviewersToRequest.length +
+              " reviewer" +
+              (reviewersToRequest.length === 1 ? "" : "s") +
+              ".";
+          }
+          return truncateStatusReason(reason);
+        }
+
+        function buildDiscordMessage(title, prUrl, author, riskScore, prNumber) {
+          const label = String(title || "")
+            .trim()
+            .replace(/[\[\]]/g, "")
+            || "PR #" + prNumber;
+          return "[" + label + "](" + prUrl + ") - " + String(author || "unknown") + " - Risk: " + riskScore + "/100";
+        }
+
+        function buildCommentBody(
+          llm,
+          valid,
+          llmApproved,
+          hasOwnerPolicy,
+          ownersSatisfied,
+          pendingFiles,
+          pendingOwners,
+          approvers,
+        ) {
+          const lines = ["## PR Risk Review", ""];
+          lines.push("**Risk:** " + llm.risk_score + "/100 (" + llm.risk_level + ")");
+          lines.push("**Review approved:** " + (llmApproved ? "Yes" : "No"));
+          lines.push("**Check passed:** " + (valid ? "Yes" : "No"));
+          lines.push("");
+          if (llm.summary) {
+            lines.push("### Summary");
+            lines.push(llm.summary);
+            lines.push("");
+          }
+          if (llm.concerns && llm.concerns.length) {
+            lines.push("### Concerns");
+            for (const concern of llm.concerns) {
+              lines.push("- " + concern);
+            }
+            lines.push("");
+          }
+          if (hasOwnerPolicy) {
+            lines.push("### Code owners");
+            if (ownersSatisfied) {
+              lines.push("All covered files have owner approval.");
+              if (approvers.length) {
+                lines.push("Approvers: " + approvers.join(", "));
+              }
+            } else {
+              lines.push(
+                "Waiting for owner approval on " +
+                  pendingFiles.length +
+                  " file(s)." +
+                  (pendingOwners.length ? " Pending: " + pendingOwners.join(", ") : ""),
+              );
+            }
+            lines.push("");
+          }
+          if (llm.recommended_reviewers && llm.recommended_reviewers.length) {
+            lines.push("**Recommended reviewers:** " + llm.recommended_reviewers.join(", "));
+          }
+          return lines.join("\n").trim();
         }
 
         async function main() {
-          const event = resolveEvent();
-          const pr = event.pull_request || {};
-          const repository = event.repository || {};
-          const repo = repository.full_name || "";
-          const prNumber = pr.number;
-          const action = event.action || "";
+          const review = nodeResult($, "Review PR");
 
-          if (!repo || !prNumber) {
-            throw new Error("Missing repository or pull request number in trigger payload.");
-          }
-
-          const files = await githubFetchAll(
-            "https://api.github.com/repos/" +
-              repo +
-              "/pulls/" +
-              prNumber +
-              "/files?per_page=100",
-          );
-          const changedPaths = files
-            .map(function (file) {
-              return file && file.filename;
-            })
-            .filter(Boolean);
-
-          const baseBranch = String((pr.base && pr.base.ref) || "");
-          const author = String((pr.user && pr.user.login) || "");
-
-          if (!isMainBranch(baseBranch)) {
+          if (review.skipped) {
             return {
               valid: true,
               satisfied: true,
               skipped: true,
-              repository: repo,
-              pr_number: String(prNumber),
-              title: String(pr.title || ""),
-              author: author,
-              head_sha: String((pr.head && pr.head.sha) || ""),
-              base_branch: baseBranch,
+              repository: review.repository,
+              repository_name: review.repository_name,
+              pr_number: review.pr_number,
+              title: review.title || "",
+              author: review.author || "",
+              head_sha: review.head_sha || "",
+              base_branch: review.base_branch || "",
               policy_branch: "",
               codeowners_path: "",
-              changed_files: changedPaths.length,
+              has_owner_policy: false,
+              manual: review.manual === true,
+              changed_files: 0,
               covered_files: 0,
               pending_files: 0,
               pending_owners: "",
               approvers: "",
               reviewers_to_request: [],
-              reason:
-                "Code owners policy only applies to pull requests targeting main or master.",
+              risk_score: 0,
+              risk_level: "low",
+              recommended_reviewers: "",
+              compliance_reviewers: "",
+              llm_summary: "",
+              llm_approved: true,
+              owners_satisfied: true,
+              comment_body: "",
+              comment_id: "",
+              comment_url: "",
+              comment_updated: false,
+              comment_posted: false,
+              pr_url: "",
+              discord_message: "",
+              notify_discord: false,
+              reason: review.reason || "Skipped.",
               file_results: [],
               pending: [],
             };
           }
 
-          const codeowners = await fetchCodeownersConfig(repo, baseBranch);
-          const parsed = codeowners
-            ? parseCodeownersYaml(codeowners.text)
-            : { rules: [], groups: {} };
+          const llmRaw = review.llm_review || {};
+          const llm = {
+            risk_score: Number(llmRaw.risk_score) || 0,
+            risk_level: String(llmRaw.risk_level || "low"),
+            approved: llmRaw.approved === true,
+            summary: String(llmRaw.summary || ""),
+            concerns: Array.isArray(llmRaw.concerns) ? llmRaw.concerns.map(String) : [],
+            recommended_reviewers: Array.isArray(llmRaw.recommended_reviewers)
+              ? llmRaw.recommended_reviewers.map(function (v) {
+                  return String(v).trim().replace(/^@/, "").toLowerCase();
+                }).filter(Boolean)
+              : [],
+          };
+
+          const repo = review.repository;
+          const prNumber = review.pr_number;
+          const author = review.author || "";
+          const title = review.title || "";
+          const codeownersText = review.codeowners_text || "";
+          const parsed = codeownersText.trim() ? parseCodeownersYaml(codeownersText) : { rules: [], groups: {}, complianceReviewers: [] };
           const rules = parsed.rules;
           const groups = parsed.groups;
+          const complianceReviewers = parsed.complianceReviewers.length
+            ? parsed.complianceReviewers
+            : DEFAULT_COMPLIANCE_REVIEWERS.slice();
+          const hasOwnerPolicy = rules.length > 0;
+
+          const changedPaths = String(review.changed_files_list || "")
+            .split("\n")
+            .map(function (line) {
+              return line.trim();
+            })
+            .filter(function (line) {
+              return line && line.indexOf("... and ") !== 0;
+            });
 
           const reviews = await githubFetchAll(
-            "https://api.github.com/repos/" +
-              repo +
-              "/pulls/" +
-              prNumber +
-              "/reviews?per_page=100",
+            "https://api.github.com/repos/" + repo + "/pulls/" + prNumber + "/reviews?per_page=100",
           );
           const approvers = latestApprovals(reviews);
-          const reviewersToRequest = collectReviewersToRequest(
-            changedPaths,
-            rules,
-            groups,
-            author,
-            approvers,
-          );
 
           const fileResults = [];
           for (const path of changedPaths) {
@@ -602,17 +1334,12 @@ spec:
               });
               continue;
             }
-
             const owners = matched.owners;
             const selfApproval = matched.self_approval === true;
-
             const approvedBy = [];
             for (const login of approvers) {
-              if (ownerMatches(login, owners, groups)) {
-                approvedBy.push(login);
-              }
+              if (ownerMatches(login, owners, groups)) approvedBy.push(login);
             }
-
             let satisfied = approvedBy.length > 0;
             let autoApproved = false;
             if (!satisfied && selfApproval && author) {
@@ -622,7 +1349,6 @@ spec:
                 approvedBy.push(author);
               }
             }
-
             fileResults.push({
               path: path,
               owners: owners,
@@ -639,7 +1365,9 @@ spec:
           const pendingFiles = fileResults.filter(function (entry) {
             return entry.owners.length > 0 && !entry.satisfied;
           });
-          const valid = pendingFiles.length === 0;
+          const ownersSatisfied = pendingFiles.length === 0;
+          const llmApproved = llm.approved === true;
+          const valid = ownersSatisfied && llmApproved;
 
           const pendingOwners = [];
           const seenOwners = {};
@@ -652,39 +1380,81 @@ spec:
             }
           }
 
-          let reason = "All code owner requirements are satisfied.";
-          if (!codeowners) {
-            reason = "No codeowners.yml file found on main or master; nothing to enforce.";
-          } else if (!valid) {
-            reason =
-              "Waiting for approval from code owners for " +
-              pendingFiles.length +
-              " file(s).";
-          } else if (
-            fileResults.some(function (entry) {
-              return entry.auto_approved;
-            })
-          ) {
-            reason = "All code owner requirements are satisfied (self-approval).";
+          const expertReviewers = llm.recommended_reviewers;
+          const reviewersToRequest = mergeReviewers(expertReviewers, complianceReviewers, author, approvers, 10);
+
+          const reason = buildStatusReason(
+            llm,
+            valid,
+            llmApproved,
+            hasOwnerPolicy,
+            ownersSatisfied,
+            pendingFiles,
+            reviewersToRequest,
+          );
+          const commentBody = buildCommentBody(
+            llm,
+            valid,
+            llmApproved,
+            hasOwnerPolicy,
+            ownersSatisfied,
+            pendingFiles,
+            pendingOwners,
+            approvers,
+          );
+
+          let commentMeta = {
+            comment_id: "",
+            comment_url: "",
+            comment_updated: false,
+            comment_posted: false,
+          };
+          if (commentBody) {
+            commentMeta = await upsertReviewComment(repo, prNumber, commentBody);
           }
+
+          const prUrl = "https://github.com/" + repo + "/pull/" + prNumber;
+          const notifyDiscord = commentMeta.comment_posted && !commentMeta.comment_updated;
+          const discordMessage = notifyDiscord
+            ? buildDiscordMessage(title, prUrl, author, llm.risk_score, prNumber)
+            : "";
 
           return {
             valid: valid,
             satisfied: valid,
             repository: repo,
+            repository_name: review.repository_name,
             pr_number: String(prNumber),
-            title: String(pr.title || ""),
+            title: review.title || "",
             author: author,
-            head_sha: String((pr.head && pr.head.sha) || ""),
-            base_branch: baseBranch,
-            policy_branch: codeowners ? codeowners.policy_branch : "",
-            codeowners_path: codeowners ? codeowners.path : "",
-            changed_files: changedPaths.length,
+            head_sha: review.head_sha || "",
+            base_branch: review.base_branch || "",
+            policy_branch: review.policy_branch || "",
+            codeowners_path: codeownersText.trim() ? CODEOWNERS_CONFIG_PATH : "",
+            has_owner_policy: hasOwnerPolicy,
+            manual: review.manual === true,
+            changed_files: review.changed_files || changedPaths.length,
             covered_files: coveredFiles.length,
             pending_files: pendingFiles.length,
             pending_owners: pendingOwners.join(", "),
             approvers: approvers.join(", "),
             reviewers_to_request: reviewersToRequest,
+            risk_score: llm.risk_score,
+            risk_level: llm.risk_level,
+            recommended_reviewers: expertReviewers.join(", "),
+            compliance_reviewers: complianceReviewers.join(", "),
+            llm_summary: llm.summary,
+            llm_approved: llmApproved,
+            owners_satisfied: ownersSatisfied,
+            llm_concerns: llm.concerns.join("; "),
+            comment_body: commentBody,
+            comment_id: commentMeta.comment_id,
+            comment_url: commentMeta.comment_url,
+            comment_updated: commentMeta.comment_updated,
+            comment_posted: commentMeta.comment_posted,
+            pr_url: prUrl,
+            discord_message: discordMessage,
+            notify_discord: notifyDiscord,
             reason: reason,
             file_results: fileResults,
             pending: pendingFiles,
@@ -694,8 +1464,44 @@ spec:
 
 '
     id: check-codeowners
-    name: Check code owners
+    name: Evaluate PR risk
     position:
-      x: 1400
-      "y": 380
+      x: 2064
+      "y": 576
     type: TYPE_ACTION
+  - component: github.onPullRequest
+    configuration:
+      actions:
+      - opened
+      - synchronize
+      - reopened
+      repository: superplane
+    id: trigger-on-pull-request
+    integration:
+      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
+    metadata:
+      repository:
+        id: 979560403.0
+        name: superplane
+        url: https://github.com/superplanehq/superplane
+    name: On Pull Request
+    position:
+      x: 120
+      "y": 380
+    type: TYPE_TRIGGER
+  - component: github.onPRReviewComment
+    configuration:
+      repository: superplane
+    id: trigger-on-pr-review
+    integration:
+      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
+    metadata:
+      repository:
+        id: 979560403.0
+        name: superplane
+        url: https://github.com/superplanehq/superplane
+    name: On PR Review
+    position:
+      x: 120
+      "y": 740
+    type: TYPE_TRIGGER

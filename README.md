@@ -1,86 +1,83 @@
-# Code Owners
+# PR Risk Review
 
 [![Launch in SuperPlane](http://superplane.com/badges/launch-in-superplane.svg)](https://app.superplane.com/install?repo=github.com/superplanehq/app_codeowners)
 
-Enforce **`codeowners.yml` approval** on GitHub pull requests — request reviewers when a PR opens, publish a **Code Owners** commit status, and track check results in the console.
+**LLM pull request risk review** on GitHub — checkout the PR on a large runner, score risk with Claude (Anthropic API), OpenAI Codex, or Amazon Bedrock, optionally enforce **`codeowners.yml`** owner approval, publish status, and upsert a single PR comment with the full review.
 
 Built with [SuperPlane](https://superplane.com).
 
 ## How it works
 
-1. **On pull request** — listen for `opened`, `synchronize`, and `reopened` events on a selected repository
-2. **On PR review** — re-check when a review is submitted
-3. **Check code owners** — read `codeowners.yml` from `main` or `master`, map changed files to owners and groups, and verify each covered file is approved
-4. **Request reviewers** — when a pull request is opened, add reviewers from `codeowners.yml` for the changed files (author and existing approvers are skipped)
-5. **Enforce** — publish a **Code Owners** commit status (success or failure) on the PR head commit
-6. **Console** — recent checks table backed by the `codeownersChecks` memory namespace
+1. **Review PR** (`runnerJS`, host on `e1-large-amd64`) — clone repo, checkout PR head, read `codeowners.yml`, build diff, call the configured LLM (fetch + optional Bedrock SDK)
+2. **Evaluate PR risk** (`runnerJS`) — merge the LLM JSON with GitHub owner approvals from `codeowners.yml` and upsert one PR comment
+3. Publish **PR Risk Review** commit status, optionally request reviewers, and on the **first** review post a **Discord** message
+
+### Pass / fail
+
+| Condition | Required for pass |
+|---|---|
+| LLM review (`approved: true`) | Always |
+| `codeowners.yml` owner rules | When rules exist — covered files need approving GitHub reviews |
+
+## LLM providers
+
+Set **`LLM_PROVIDER`** on the **Review PR** node to one of:
+
+| Provider | `LLM_PROVIDER` | Credentials | Default model |
+|---|---|---|---|
+| Anthropic (Claude) | `anthropic` | `ANTHROPIC_API_KEY` secret | `claude-opus-4-8` |
+| Amazon Bedrock | `bedrock` | **`AWS_REGION`** + model access; optional secrets **`AWS_ACCESS_KEY_ID`**, **`AWS_SECRET_ACCESS_KEY`**, **`AWS_SESSION_TOKEN`** (omit if runner has an IAM role) | `anthropic.claude-opus-4-8` |
+| OpenAI Codex | `codex` | `OPENAI_API_KEY` secret | `gpt-5.3-codex` |
+
+Override models with **`ANTHROPIC_MODEL`**, **`BEDROCK_MODEL_ID`**, or **`CODEX_MODEL`**. Any provider accepts a generic **`LLM_MODEL`** override.
+
+If `LLM_PROVIDER` is unset, the script picks the first available credential: Anthropic API key → OpenAI API key → AWS region.
 
 ## Prerequisites
 
 - [SuperPlane](https://superplane.com) account
-- GitHub integration connected to the target repository
-- `codeowners.yml` at the repository root on `main` or `master`
+- GitHub integration on triggers, status, and reviewer nodes
+- Fleet runner with **`e1-large-amd64`** for **Review PR**; **`git`** and **Node.js** on the runner
+- One LLM backend (Anthropic API key, OpenAI API key, or Bedrock access)
+- Optional: `codeowners.yml` on `main` / `master`
 
 ## Setup
 
-1. **Add `codeowners.yml`** to your repository root on `main` or `master`.
-2. **Connect GitHub** — bind the integration on **On Pull Request**, **On PR Review**, **Add pull request reviewers**, and the status nodes. Select your repository on both triggers.
-3. **Branch protection** — require the **Code Owners** status check before merging.
-4. **Optional:** add a `GITHUB_TOKEN` secret on **Check code owners** for private repositories.
+1. **Connect GitHub** on trigger, status, and reviewer nodes.
+2. **Connect Discord** on **Discord review posted** and select the channel.
+3. On **Review PR**, set **`LLM_PROVIDER`** and add the matching node secrets:
+   - **`anthropic`** — `ANTHROPIC_API_KEY`
+   - **`codex`** — `OPENAI_API_KEY`
+   - **`bedrock`** — enable Claude Opus 4.8 in Bedrock; set **`AWS_REGION`**. Add **`AWS_ACCESS_KEY_ID`** / **`AWS_SECRET_ACCESS_KEY`** secrets unless the runner uses an IAM role. Optional **`AWS_SESSION_TOKEN`** for temporary credentials.
+4. Add **`GITHUB_TOKEN`** on **Review PR** and **Evaluate PR risk** for private repos (recommended for all repos).
+5. Optional: add `codeowners.yml` for owner rules and `compliance_reviewers`.
+6. Optional: branch protection on the **PR Risk Review** status check.
 
-## `codeowners.yml` format
+Setup on **Review PR**: `npm install --no-save @aws-sdk/client-bedrock-runtime` (Bedrock only; Anthropic and OpenAI use `fetch`).
 
-```yaml
-groups:
-  frontend-team:
-    - alice
-    - bob
-  docs-team:
-    - carol
+Setup on **Evaluate PR risk**: `npm install --no-save js-yaml`
 
-rules:
-  - pattern: "/src/**"
-    self_approval: true
-    owners:
-      - "@frontend-team"
-      - "@eve"
-  - pattern: "/docs/**"
-    self_approval: false
-    owners:
-      - "@docs-team"
-```
+### Discord (first review only)
 
-- Patterns are matched from the **repository root** — use a leading `/` (for example, `/pkg/models/**`)
-- The last matching rule wins
-- `self_approval` defaults to `false`
-- Groups are defined under `groups` with GitHub usernames; reference them in `owners` as `@group-name`
-- Checks run only on pull requests into `main` or `master`
+On the first review for a PR (when the GitHub comment is created, not updated on re-check), a message is posted to Discord:
 
-## `GITHUB_TOKEN` secret
+`[PR title](https://github.com/owner/repo/pull/123) - author - Risk: 9/100`
 
-Add a secret named `GITHUB_TOKEN` on the **Check code owners** node. It is used to read repository contents and pull request files from the GitHub API.
+Connect the **Discord review posted** node to your Discord integration and pick a channel.
 
-- **Private repositories:** required
-- **Public repositories:** optional, but recommended to avoid unauthenticated API rate limits
+## `codeowners.yml`
 
-### Fine-grained personal access token (recommended)
+See inline docs in `console.yaml` — `groups`, `rules`, `compliance_reviewers`.
 
-- **Repository access:** Only select repositories → choose the target repository
-- **Repository permissions:**
-  - **Contents:** Read
-  - **Metadata:** Read
-  - **Pull requests:** Read
+Without it, the LLM still reviews the diff; only owner enforcement is skipped.
 
-## Customization
+## Source layout
 
-| Setting | Default |
+| File | Role |
 |---|---|
-| Policy file | `codeowners.yml` |
-| Policy branch | `main` or `master` |
-| Target branches | `main`, `master` |
-| Status context | `Code Owners` |
-| Memory namespace | `codeownersChecks` |
-| Reviewer assignment | On `opened` only |
+| `scripts/review_pr.js` | Checkout + multi-provider LLM call |
+| `scripts/merge_check.js` | Owner policy + merge + upsert PR comment |
+| `canvas.yaml` | Embedded workflow |
 
 ## License
 

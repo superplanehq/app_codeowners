@@ -2,10 +2,17 @@
 apiVersion: v1
 kind: Console
 metadata:
-  canvasId: de1f65dd-3bb2-4504-a451-e643f3df140f
-  name: app-codeowners
+  canvasId: 48ed089a-5d5c-4ca2-b360-81a437a3be4c
+  name: pr-risk-review
 spec:
   layout:
+  - h: 4
+    i: check-pr
+    minH: 2
+    minW: 2
+    w: 4
+    x: 0
+    "y": 11
   - h: 11
     i: readme
     minH: 2
@@ -13,7 +20,7 @@ spec:
     w: 4
     x: 0
     "y": 0
-  - h: 11
+  - h: 15
     i: checks-table
     minH: 4
     minW: 4
@@ -22,27 +29,84 @@ spec:
     "y": 0
   panels:
   - content:
+      node: trigger-check-pr
+      showRun: true
+      title: Check pull request
+      triggerName: run
+    id: check-pr
+    type: node
+  - content:
       body: |
-        Code Owners checks pull requests against a `codeowners.yml` file in your repository. It publishes a **Code Owners** status check and blocks merging when required owners have not approved.
+        **PR Risk Review** checks out each pull request on a large runner (Node.js), runs an **LLM risk review** (Claude, OpenAI Codex, or Amazon Bedrock), and optionally combines that with **`codeowners.yml`** owner approvals.
 
         <details>
         <summary>Quick start</summary>
 
-        1. Add `codeowners.yml` to your repository root on `main` or `master`.
-        2. Connect GitHub and bind the integration on **On Pull Request**, **On PR Review**, **Add pull request reviewers**, and the status nodes. Select your repository on both triggers.
-        3. In branch protection, require the **Code Owners** status check.
-        4. Optional: add a `GITHUB_TOKEN` secret on **Check code owners** for private repositories.
+        1. Connect GitHub and bind the integration on the trigger and status nodes.
+        2. Connect **Discord** on **Discord review posted** and select a channel.
+        3. On **Review PR**, set **`LLM_PROVIDER`** to `anthropic`, `codex`, or `bedrock` and add the matching secret (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or AWS/Bedrock access).
+        4. Add **`GITHUB_TOKEN`** on **Review PR** and **Evaluate PR risk** for private repos.
+        5. Optional: add `codeowners.yml` to your repository for owner approval rules.
+        6. Use **Check pull request** below to run a check manually for any PR.
 
         </details>
 
         <details>
-        <summary>Reviewers on open</summary>
+        <summary>Manual check</summary>
 
-        When a pull request is **opened**, the app requests reviews from everyone listed in `codeowners.yml` for the changed files.
+        Use the **Check pull request** panel to score risk and request reviewers for any PR.
 
-        - The PR author is never requested
-        - People who already approved are skipped
-        - Group members are expanded from your `groups` section
+        Enter `owner/repo` and the pull request number, then click **Run**.
+
+        You can also re-check a PR from the **Recent checks** table using the row action.
+
+        Manual checks work even when `codeowners.yml` is missing.
+
+        </details>
+
+        <details>
+        <summary>LLM providers</summary>
+
+        Set **`LLM_PROVIDER`** on **Review PR**:
+
+        | Provider | Value | Secret / config |
+        |---|---|---|
+        | Claude (Anthropic API) | `anthropic` | `ANTHROPIC_API_KEY` |
+        | OpenAI Codex | `codex` | `OPENAI_API_KEY` |
+        | Amazon Bedrock | `bedrock` | `AWS_REGION` + Bedrock model access. Secrets: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (optional if runner has IAM role), `AWS_SESSION_TOKEN` (optional) |
+
+        Default models: `claude-opus-4-8`, `gpt-5.3-codex`, `anthropic.claude-opus-4-8`.
+
+        </details>
+
+        <details>
+        <summary>LLM + codeowners decision</summary>
+
+        A check **passes** only when:
+
+        1. The **LLM** returns approval after reviewing the checked-out diff
+        2. **`codeowners.yml` owner rules** are satisfied (when rules exist) — each covered file has an approving owner on GitHub
+
+        Risk score and level come from the LLM. Reviewers are requested from its recommendations plus `compliance_reviewers` in `codeowners.yml`.
+
+        </details>
+
+        <details>
+        <summary>Checkout and LLM review</summary>
+
+        When a pull request is **opened** or re-checked:
+
+        1. **Review PR** clones the repo, checks out the PR head, and calls the configured LLM with the diff
+        2. **Evaluate PR risk** merges the LLM decision with GitHub owner approvals, updates one PR comment (no duplicate comments on re-check), and on the **first** review posts to **Discord**
+
+        </details>
+
+        <details>
+        <summary>Discord notification</summary>
+
+        Posted only on the **first** review (not on re-check). Format:
+
+        `[PR title](https://github.com/owner/repo/pull/123) - author - Risk: 9/100`
 
         </details>
 
@@ -50,10 +114,16 @@ spec:
         <summary>codeowners.yml format</summary>
 
         ```yaml
+        compliance_reviewers:
+          - security-lead
+          - compliance-officer
+
         groups:
           frontend-team:
-            - alice
-            - bob
+            role: frontend
+            members:
+              - alice
+              - bob
           docs-team:
             - carol
 
@@ -109,13 +179,13 @@ spec:
 
         The app reads `codeowners.yml`, maps changed files to owners and groups, and verifies each covered file is approved. With `self_approval: true`, listed owners pass automatically on their own pull requests.
 
-        - **Pass:** **Code Owners** status → success
-        - **Fail:** **Code Owners** status → failure
+        - **Pass:** **PR Risk Review** status → success
+        - **Fail:** **PR Risk Review** status → failure
 
         New commits trigger a fresh check. Approvals are re-evaluated when reviews are submitted.
 
         </details>
-      title: Code Owners
+      title: PR Risk Review
     id: readme
     type: markdown
   - content:
@@ -127,23 +197,33 @@ spec:
         - field: pr_number
           label: PR
         - field: title
+          format: link
+          href: https://github.com/{repository}/pull/{pr_number}
           label: Title
         - field: author
           label: Author
+        - field: '{{ string(int(risk_score)) + "/100" }}'
+          label: Risk
         - field: satisfied
           format: badge
           label: Status
-        - field: pending_files
-          format: number
-          label: Pending files
-        - field: pending_owners
-          label: Pending owners
-        - field: approvers
-          label: Approvers
+        - field: '{{ int(covered_files) == 0 ? "0/0" : string(int(covered_files) -
+            int(pending_files)) + "/" + string(int(covered_files)) }}'
+          label: Owner reviews
         - field: last_checked_at
           format: relative
           label: Last check
         kind: table
+        rowActions:
+        - icon: refresh
+          kind: trigger
+          label: Re-check
+          node: trigger-check-pr
+          payload:
+            action: manual
+            pull_number: "{{ pr_number }}"
+            repository: "{{ repository }}"
+          variant: default
         rowStyles:
         - field: satisfied
           op: eq
