@@ -104,13 +104,13 @@ spec:
       enable_setup_commands: true
       environment:
       - name: LLM_PROVIDER
-        value: anthropic
+        value: bedrock
         valueSource: literal
       - name: ANTHROPIC_MODEL
-        value: claude-opus-4-8
+        value: claude-opus-4-6
         valueSource: literal
       - name: BEDROCK_MODEL_ID
-        value: anthropic.claude-opus-4-8
+        value: anthropic.claude-opus-4-6-v1
         valueSource: literal
       - name: CODEX_MODEL
         value: gpt-5.3-codex
@@ -136,24 +136,24 @@ spec:
         const os = require("os");
         const path = require("path");
         // fs is injected by the SuperPlane runner wrapper
-
+        
         const CODEOWNERS_PATH = "codeowners.yml";
         const MAIN_BRANCHES = ["main", "master"];
         const MAX_DIFF_CHARS = 60000;
-        const DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-8";
-        const DEFAULT_BEDROCK_MODEL = "anthropic.claude-opus-4-8";
+        const DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-6";
+        const DEFAULT_BEDROCK_MODEL = "anthropic.claude-opus-4-6-v1";
         const DEFAULT_CODEX_MODEL = "gpt-5.3-codex";
-
+        
         function log(msg) {
           console.log(msg);
         }
-
+        
         function nodeData(payload, name) {
           const entry = payload[name] || {};
           const data = entry.data || {};
           return data && typeof data === "object" ? data : {};
         }
-
+        
         function normalizeRepo(value) {
           let repo = String(value || "").trim();
           for (const prefix of ["https://github.com/", "http://github.com/"]) {
@@ -162,7 +162,7 @@ spec:
           if (repo.toLowerCase().endsWith(".git")) repo = repo.slice(0, -4);
           return repo.replace(/^\/+|\/+$/g, "");
         }
-
+        
         async function githubRequest(url) {
           const headers = {
             Accept: "application/vnd.github+json",
@@ -178,7 +178,7 @@ spec:
           }
           return response.json();
         }
-
+        
         async function resolveEvent(payload) {
           const manual = nodeData(payload, "Check PR");
           if (manual.pull_number) {
@@ -199,14 +199,14 @@ spec:
               },
             };
           }
-
+        
           for (const name of ["On Pull Request", "On PR Review"]) {
             const data = nodeData(payload, name);
             if (data && Object.keys(data).length) return data;
           }
           return {};
         }
-
+        
         function runCmd(args, cwd, check) {
           const mustCheck = check !== false;
           try {
@@ -227,13 +227,13 @@ spec:
             return err.stdout || "";
           }
         }
-
+        
         function cloneUrl(repo) {
           const token = String(process.env.GITHUB_TOKEN || "").trim();
           if (token) return "https://x-access-token:" + token + "@github.com/" + repo + ".git";
           return "https://github.com/" + repo + ".git";
         }
-
+        
         function readCodeowners(repoDir, baseBranch) {
           const candidates = [];
           for (const branch of [baseBranch, "main", "master"]) {
@@ -248,7 +248,7 @@ spec:
           }
           return ["", ""];
         }
-
+        
         function extractJsonObject(text) {
           let raw = String(text || "").trim();
           if (!raw) throw new Error("empty model response");
@@ -259,7 +259,7 @@ spec:
           if (start === -1 || end === -1) throw new Error("no JSON object in model response");
           return JSON.parse(raw.slice(start, end + 1));
         }
-
+        
         function normalizeLlmReview(parsed) {
           let riskScore = parseInt(parsed.risk_score, 10) || 0;
           riskScore = Math.max(0, Math.min(100, riskScore));
@@ -291,7 +291,7 @@ spec:
             recommended_reviewers: cleanReviewers,
           };
         }
-
+        
         function reviewJsonSchemaExample() {
           return JSON.stringify(
             {
@@ -306,7 +306,7 @@ spec:
             2,
           );
         }
-
+        
         function buildReviewPrompt(
           repo,
           prNumber,
@@ -347,7 +347,7 @@ spec:
             reviewJsonSchemaExample()
           );
         }
-
+        
         function resolveLlmProvider() {
           const explicit = String(process.env.LLM_PROVIDER || "").trim().toLowerCase();
           const aliases = {
@@ -365,12 +365,14 @@ spec:
             }
             return provider;
           }
+          if (String(process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "").trim()) return "bedrock";
           if (String(process.env.ANTHROPIC_API_KEY || "").trim()) return "anthropic";
           if (String(process.env.OPENAI_API_KEY || "").trim()) return "codex";
-          if (String(process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "").trim()) return "bedrock";
-          return "anthropic";
+          throw new Error(
+            "No LLM provider configured. Set LLM_PROVIDER to anthropic, bedrock, or codex and add matching credentials.",
+          );
         }
-
+        
         function resolveModel(provider) {
           const generic = String(process.env.LLM_MODEL || "").trim();
           if (generic) return generic;
@@ -390,14 +392,14 @@ spec:
             DEFAULT_CODEX_MODEL
           );
         }
-
+        
         function parseLlmResponse(text, providerLabel) {
           if (!String(text || "").trim()) {
             throw new Error(providerLabel + " returned an empty response");
           }
           return normalizeLlmReview(extractJsonObject(text));
         }
-
+        
         async function callAnthropic(prompt, systemMessage) {
           const apiKey = String(process.env.ANTHROPIC_API_KEY || "").trim();
           if (!apiKey) throw new Error("ANTHROPIC_API_KEY is required when LLM_PROVIDER=anthropic.");
@@ -426,7 +428,7 @@ spec:
           }
           return { review: parseLlmResponse(parts.join("\n").trim(), "Anthropic API"), model: model };
         }
-
+        
         async function callBedrock(prompt, systemMessage) {
           const region = String(process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "").trim();
           if (!region) throw new Error("AWS_REGION is required when LLM_PROVIDER=bedrock.");
@@ -455,7 +457,7 @@ spec:
           if (!text && payload.completion) text = String(payload.completion).trim();
           return { review: parseLlmResponse(text, "Amazon Bedrock"), model: model };
         }
-
+        
         async function callCodex(prompt, systemMessage) {
           const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
           if (!apiKey) throw new Error("OPENAI_API_KEY is required when LLM_PROVIDER=codex.");
@@ -485,14 +487,14 @@ spec:
           const text = choice && choice.message ? String(choice.message.content || "").trim() : "";
           return { review: parseLlmResponse(text, "OpenAI Codex"), model: model };
         }
-
+        
         async function callLlm(prompt, systemMessage) {
           const provider = resolveLlmProvider();
           if (provider === "anthropic") return Object.assign({ provider: provider }, await callAnthropic(prompt, systemMessage));
           if (provider === "bedrock") return Object.assign({ provider: provider }, await callBedrock(prompt, systemMessage));
           return Object.assign({ provider: provider }, await callCodex(prompt, systemMessage));
         }
-
+        
         async function main() {
           const event = await resolveEvent($);
           const pr = event.pull_request || {};
@@ -501,16 +503,16 @@ spec:
           const prNumber = pr.number;
           const action = event.action || "";
           const isManual = event.manual === true || action === "manual";
-
+        
           if (!repo || !prNumber) {
             throw new Error("Missing repository or pull request number in trigger payload.");
           }
-
+        
           const baseBranch = String((pr.base && pr.base.ref) || "");
           const headSha = String((pr.head && pr.head.sha) || "");
           const author = String((pr.user && pr.user.login) || "");
           const title = String(pr.title || "");
-
+        
           if (MAIN_BRANCHES.indexOf(baseBranch.toLowerCase()) === -1 && !isManual) {
             return {
               skipped: true,
@@ -525,7 +527,7 @@ spec:
               reason: "PR risk review only applies to pull requests targeting main or master.",
             };
           }
-
+        
           const workdir = fs.mkdtempSync(path.join(os.tmpdir(), "pr-risk-review-"));
           const repoDir = path.join(workdir, "repo");
           let diffText = "";
@@ -534,21 +536,21 @@ spec:
           let changedFilesCount = 0;
           let codeownersText = "";
           let policyBranch = "";
-
+        
           try {
             log("Cloning " + repo);
             runCmd(["git", "clone", cloneUrl(repo), repoDir]);
             runCmd(["git", "fetch", "--depth", "100", "origin", baseBranch || "main"], repoDir);
             runCmd(["git", "fetch", "--depth", "100", "origin", headSha], repoDir);
             runCmd(["git", "checkout", "--detach", headSha], repoDir);
-
+        
             const baseRef = "origin/" + (baseBranch || "main");
             statText = runCmd(["git", "diff", baseRef + "...HEAD", "--stat"], repoDir, false);
             diffText = runCmd(["git", "diff", baseRef + "...HEAD"], repoDir, false);
             if (diffText.length > MAX_DIFF_CHARS) {
               diffText = diffText.slice(0, MAX_DIFF_CHARS) + "\n\n[diff truncated for review]";
             }
-
+        
             const namesOut = runCmd(["git", "diff", baseRef + "...HEAD", "--name-only"], repoDir, false);
             const names = String(namesOut || "")
               .split("\n")
@@ -561,7 +563,7 @@ spec:
             if (names.length > 200) {
               changedFilesList += "\n... and " + String(names.length - 200) + " more files";
             }
-
+        
             const codeownersResult = readCodeowners(repoDir, baseBranch);
             codeownersText = codeownersResult[0];
             policyBranch = codeownersResult[1];
@@ -569,7 +571,7 @@ spec:
           } finally {
             fs.rmSync(workdir, { recursive: true, force: true });
           }
-
+        
           const provider = resolveLlmProvider();
           log("Calling LLM via " + provider);
           const prompt = buildReviewPrompt(
@@ -599,7 +601,7 @@ spec:
               " approved=" +
               llmReview.approved,
           );
-
+        
           return {
             skipped: false,
             repository: repo,

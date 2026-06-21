@@ -8,7 +8,7 @@ Built with [SuperPlane](https://superplane.com).
 
 ## How it works
 
-1. **Review PR** (`runnerJS`, host on `e1-large-amd64`) — clone repo, checkout PR head, read `codeowners.yml`, build diff, call the configured LLM (fetch + optional Bedrock SDK)
+1. **Review PR** (`runnerJS`, host on `aws-standard-1`) — clone repo, checkout PR head, read `codeowners.yml`, build diff, call the configured LLM (fetch + optional Bedrock SDK)
 2. **Evaluate PR risk** (`runnerJS`) — merge the LLM JSON with GitHub owner approvals from `codeowners.yml` and upsert one PR comment
 3. Publish **PR Risk Review** commit status, optionally request reviewers, and on the **first** review post a **Discord** message
 
@@ -25,19 +25,19 @@ Set **`LLM_PROVIDER`** on the **Review PR** node to one of:
 
 | Provider | `LLM_PROVIDER` | Credentials | Default model |
 |---|---|---|---|
-| Anthropic (Claude) | `anthropic` | `ANTHROPIC_API_KEY` secret | `claude-opus-4-8` |
-| Amazon Bedrock | `bedrock` | **`AWS_REGION`** + model access; optional secrets **`AWS_ACCESS_KEY_ID`**, **`AWS_SECRET_ACCESS_KEY`**, **`AWS_SESSION_TOKEN`** (omit if runner has an IAM role) | `anthropic.claude-opus-4-8` |
+| Anthropic (Claude) | `anthropic` | `ANTHROPIC_API_KEY` secret | `claude-opus-4-6` |
+| Amazon Bedrock | `bedrock` | **`AWS_REGION`** + model access; optional secrets **`AWS_ACCESS_KEY_ID`**, **`AWS_SECRET_ACCESS_KEY`**, **`AWS_SESSION_TOKEN`** (omit if runner has an IAM role) | `anthropic.claude-opus-4-6-v1` |
 | OpenAI Codex | `codex` | `OPENAI_API_KEY` secret | `gpt-5.3-codex` |
 
 Override models with **`ANTHROPIC_MODEL`**, **`BEDROCK_MODEL_ID`**, or **`CODEX_MODEL`**. Any provider accepts a generic **`LLM_MODEL`** override.
 
-If `LLM_PROVIDER` is unset, the script picks the first available credential: Anthropic API key → OpenAI API key → AWS region.
+If `LLM_PROVIDER` is unset, the script auto-detects: AWS region → Anthropic API key → OpenAI API key.
 
 ## Prerequisites
 
 - [SuperPlane](https://superplane.com) account
 - GitHub integration on triggers, status, and reviewer nodes
-- Fleet runner with **`e1-large-amd64`** for **Review PR**; **`git`** and **Node.js** on the runner
+- Fleet runner with **`aws-standard-1`** for **Review PR**; **`git`** and **Node.js** on the runner
 - One LLM backend (Anthropic API key, OpenAI API key, or Bedrock access)
 - Optional: `codeowners.yml` on `main` / `master`
 

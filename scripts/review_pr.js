@@ -6,8 +6,8 @@ const path = require("path");
 const CODEOWNERS_PATH = "codeowners.yml";
 const MAIN_BRANCHES = ["main", "master"];
 const MAX_DIFF_CHARS = 60000;
-const DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-8";
-const DEFAULT_BEDROCK_MODEL = "anthropic.claude-opus-4-8";
+const DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-6";
+const DEFAULT_BEDROCK_MODEL = "anthropic.claude-opus-4-6-v1";
 const DEFAULT_CODEX_MODEL = "gpt-5.3-codex";
 
 function log(msg) {
@@ -231,10 +231,12 @@ function resolveLlmProvider() {
     }
     return provider;
   }
+  if (String(process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "").trim()) return "bedrock";
   if (String(process.env.ANTHROPIC_API_KEY || "").trim()) return "anthropic";
   if (String(process.env.OPENAI_API_KEY || "").trim()) return "codex";
-  if (String(process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "").trim()) return "bedrock";
-  return "anthropic";
+  throw new Error(
+    "No LLM provider configured. Set LLM_PROVIDER to anthropic, bedrock, or codex and add matching credentials.",
+  );
 }
 
 function resolveModel(provider) {
