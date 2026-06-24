@@ -16,6 +16,13 @@ function normalizeRepo(value) {
   return repo.replace(/^\/+|\/+$/g, "");
 }
 
+function normalizeLogin(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^@/, "")
+    .toLowerCase();
+}
+
 function asStringArray(value) {
   if (value == null) return [];
   if (Array.isArray(value)) return value;
@@ -106,6 +113,62 @@ function buildSkippedResult(ctx, reason) {
   };
 }
 
+function parseReviewerDetails(parsed) {
+  if (!Array.isArray(parsed.reviewers)) return [];
+  return parsed.reviewers
+    .map(function (entry) {
+      if (!entry || typeof entry !== "object") return null;
+      const person = normalizeLogin(entry.person);
+      if (!person) return null;
+      return {
+        person: person,
+        required: entry.required === true || String(entry.required).toLowerCase() === "true",
+        reason: String(entry.reason || "").trim(),
+      };
+    })
+    .filter(Boolean);
+}
+
+function mergeRecommendedReviewers(parsed) {
+  const merged = [];
+  const seen = {};
+  const add = function (login) {
+    const normalized = normalizeLogin(login);
+    if (!normalized || seen[normalized]) return;
+    seen[normalized] = true;
+    merged.push(normalized);
+  };
+
+  for (const login of asStringArray(parsed.recommended_reviewers)) add(login);
+  for (const reviewer of parseReviewerDetails(parsed)) add(reviewer.person);
+  return merged;
+}
+
+function normalizeConcerns(concerns) {
+  return asStringArray(concerns)
+    .map(function (concern) {
+      return String(concern).replace(/\s+/g, " ").trim();
+    })
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function riskLevelFromScore(score) {
+  if (score <= 20) return "very low";
+  if (score <= 40) return "low";
+  if (score <= 60) return "medium";
+  if (score <= 80) return "high";
+  return "critical";
+}
+
+function maxReviewersForRisk(score) {
+  if (score <= 20) return 1;
+  if (score <= 40) return 1;
+  if (score <= 60) return 2;
+  if (score <= 80) return 3;
+  return 10;
+}
+
 function parseLlmReview(text) {
   const raw = String(text || "").trim();
   if (!raw) {
@@ -116,6 +179,7 @@ function parseLlmReview(text) {
       summary: "Claude returned an empty review.",
       concerns: [],
       recommended_reviewers: [],
+      reviewer_details: [],
     };
   }
   let jsonText = raw;
@@ -127,23 +191,17 @@ function parseLlmReview(text) {
   try {
     const parsed = JSON.parse(jsonText);
     const riskScore = Math.max(0, Math.min(100, Number(parsed.risk_score) || 0));
-    let riskLevel = String(parsed.risk_level || "").toLowerCase();
-    if (riskLevel !== "low" && riskLevel !== "medium" && riskLevel !== "high") {
-      riskLevel = riskScore >= 60 ? "high" : riskScore >= 30 ? "medium" : "low";
-    }
+    const riskLevel = riskLevelFromScore(riskScore);
     return {
       risk_score: riskScore,
       risk_level: riskLevel,
       approved: parsed.approved === true || String(parsed.approved).toLowerCase() === "true",
       summary: String(parsed.summary || "").trim(),
-      concerns: asStringArray(parsed.concerns).map(String),
-      recommended_reviewers: asStringArray(parsed.recommended_reviewers)
-        .map(function (v) {
-          return String(v).trim().replace(/^@/, "").toLowerCase();
-        })
-        .filter(Boolean),
+      concerns: normalizeConcerns(parsed.concerns),
+      recommended_reviewers: mergeRecommendedReviewers(parsed),
+      reviewer_details: parseReviewerDetails(parsed),
       title: String(parsed.title || "").trim(),
-      author: String(parsed.author || "").trim().replace(/^@/, "").toLowerCase(),
+      author: normalizeLogin(parsed.author),
       repository: normalizeRepo(parsed.repository),
       pr_number: String(parsed.pr_number || parsed.pull_number || "").trim(),
     };
@@ -155,6 +213,7 @@ function parseLlmReview(text) {
       summary: "Could not parse Claude review JSON.",
       concerns: [raw.slice(0, 500)],
       recommended_reviewers: [],
+      reviewer_details: [],
     };
   }
 }
@@ -167,11 +226,11 @@ function markCommentBody(body) {
 }
 
 function mergeReviewers(expertReviewers, author, maxReviewers) {
-  const authorNorm = String(author || "").toLowerCase();
+  const authorNorm = normalizeLogin(author);
   const merged = [];
   const seen = {};
   for (const login of expertReviewers || []) {
-    const normalized = String(login || "").toLowerCase().replace(/^@/, "");
+    const normalized = normalizeLogin(login);
     if (!normalized || normalized === authorNorm || seen[normalized]) continue;
     seen[normalized] = true;
     merged.push(normalized);
@@ -204,19 +263,29 @@ function buildStatusReason(llm, valid, llmApproved, reviewersToRequest) {
   return truncateStatusReason(reason);
 }
 
-function buildDiscordMessage(title, prUrl, author, riskScore, prNumber) {
+function buildDiscordMessage(title, prUrl, author, riskScore, riskLevel, prNumber) {
   const label =
     String(title || "")
       .trim()
       .replace(/[\[\]]/g, "") || "PR #" + prNumber;
-  return "[" + label + "](<" + prUrl + ">) - " + String(author || "unknown") + " - Risk " + riskScore + "/100";
+  return (
+    "[" +
+    label +
+    "](<" +
+    prUrl +
+    ">) - " +
+    String(author || "unknown") +
+    " - Risk " +
+    riskScore +
+    "/100 (" +
+    riskLevel +
+    ")"
+  );
 }
 
-function buildCommentBody(llm, valid, llmApproved) {
-  const lines = ["## PR Risk Review", ""];
+function buildCommentBody(llm) {
+  const lines = [];
   lines.push("**Risk:** " + llm.risk_score + "/100 (" + llm.risk_level + ")");
-  lines.push("**Review approved:** " + (llmApproved ? "Yes" : "No"));
-  lines.push("**Check passed:** " + (valid ? "Yes" : "No"));
   lines.push("");
   if (llm.summary) {
     lines.push("### Summary");
@@ -232,6 +301,7 @@ function buildCommentBody(llm, valid, llmApproved) {
   }
   if (llm.recommended_reviewers && llm.recommended_reviewers.length) {
     lines.push("**Recommended reviewers:** " + llm.recommended_reviewers.join(", "));
+    lines.push("");
   }
   return lines.join("\n").trim();
 }
@@ -276,11 +346,17 @@ async function main() {
 
   const llmApproved = llm.approved === true;
   const valid = llmApproved;
-  const reviewersToRequest = mergeReviewers(llm.recommended_reviewers, author, 10);
+  const reviewersToRequest = mergeReviewers(
+    llm.recommended_reviewers,
+    author,
+    maxReviewersForRisk(llm.risk_score)
+  );
   const reason = buildStatusReason(llm, valid, llmApproved, reviewersToRequest);
-  const commentBody = markCommentBody(buildCommentBody(llm, valid, llmApproved));
+  const commentBody = markCommentBody(buildCommentBody(llm));
   const prUrl = "https://github.com/" + repository + "/pull/" + prNumber;
-  const discordMessage = commentBody ? buildDiscordMessage(title, prUrl, author, llm.risk_score, prNumber) : "";
+  const discordMessage = commentBody
+    ? buildDiscordMessage(title, prUrl, author, llm.risk_score, llm.risk_level, prNumber)
+    : "";
 
   return {
     valid: valid,

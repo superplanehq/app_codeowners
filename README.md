@@ -28,17 +28,17 @@
 4. Add **`GITHUB_TOKEN`** to the `app-codeowners` secret (used by the agent via session secret injection).
 5. Optional: **Connect Discord** on **Discord review posted** and pick a channel.
 
-Checks run for PRs targeting **`main`** or **`master`** only (manual checks always run). Draft PRs are skipped; after marking a draft ready, a new push triggers a check.
+Checks run for PRs targeting **`main`** or **`master`** only (manual checks always run). Draft PRs are skipped until marked **ready for review** (or updated with a new push).
 
 ### Discord
 
-`[Fix auth middleware](<https://github.com/acme/api/pull/42>) - alice - Risk 15/100`
+`[Fix auth middleware](<https://github.com/acme/api/pull/42>) - alice - Risk 15/100 (low)`
 
 ## Pass / fail
 
 A check **passes** when Claude returns `"approved": true` in its JSON review.
 
-Risk score (`0–100`) and level (`low` / `medium` / `high`) are shown in the PR comment and console.
+Risk score (`0–100`) and level (`very low` / `low` / `medium` / `high` / `critical`) are shown in the PR comment and console.
 
 ## Source layout
 

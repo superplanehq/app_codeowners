@@ -85,7 +85,7 @@ spec:
 
         Posted when a review completes. Format:
 
-        `[Fix auth middleware](<https://github.com/acme/api/pull/42>) - alice - Risk 15/100`
+        `[Fix auth middleware](<https://github.com/acme/api/pull/42>) - alice - Risk 15/100 (low)`
 
         </details>
 
@@ -94,7 +94,7 @@ spec:
 
         Automatic checks run only on pull requests into **`main`** or **`master`**.
 
-        Draft PRs are skipped. After marking a draft ready, a new push (`synchronize`) triggers a check.
+        Draft PRs are skipped until marked **ready for review** (or updated with a new push).
 
         Manual checks run for any PR.
 
@@ -103,7 +103,7 @@ spec:
         <details>
         <summary>What triggers a check?</summary>
 
-        A check runs when a pull request is **opened**, **updated**, or **reopened**.
+        A check runs when a pull request is **opened**, **updated**, **reopened**, or marked **ready for review**.
 
         </details>
       title: PR Risk Review
