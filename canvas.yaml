@@ -45,6 +45,42 @@ spec:
     sourceId: format-pr-review
     targetId: upsertmemory-record-check-c410f8
   nodes:
+  - component: readMemory
+    configuration:
+      emitMode: allAtOnce
+      matchList:
+      - name: repository
+        value: '{{ $["Format PR review"].data.result.repository }}'
+      - name: pr_number
+        value: '{{ $["Format PR review"].data.result.pr_number }}'
+      namespace: prRiskChecks
+      resultMode: latest
+    id: read-pr-comment-memory
+    name: Read PR comment memory
+    position:
+      x: 2664
+      "y": 240
+    type: TYPE_ACTION
+  - component: github.onPullRequest
+    configuration:
+      actions:
+      - opened
+      - synchronize
+      - reopened
+      repository: superplane
+    id: trigger-on-pull-request
+    integration:
+      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
+    metadata:
+      repository:
+        id: 979560403.0
+        name: superplane
+        url: https://github.com/superplanehq/superplane
+    name: On Pull Request
+    position:
+      x: 432
+      "y": 696
+    type: TYPE_TRIGGER
   - component: if
     configuration:
       expression: '{{ (root().data.action == "opened" || root().data.action == "manual")
@@ -57,9 +93,8 @@ spec:
     type: TYPE_ACTION
   - component: if
     configuration:
-      expression: '{{ root().data.action == "manual" || ((root().data.pull_request.base.ref
-        == "main" || root().data.pull_request.base.ref == "master") && root().data.pull_request.draft
-        != true) }}'
+      expression: '{{ root().data.pull_request.base.ref == "main" && root().data.pull_request.draft
+        != true }}'
     id: if-targets-main
     name: Should assess?
     position:
@@ -79,6 +114,32 @@ spec:
       x: 3312
       "y": 360
     type: TYPE_ACTION
+  - component: github.updateIssueComment
+    configuration:
+      body: '{{ $["Format PR review"].data.result.comment_body }}'
+      commentId: '{{ $["Read PR comment memory"].data.values[0].review_comment_id
+        }}'
+      repository: '{{ $["Format PR review"].data.result.repository_name }}'
+    id: github-update-pr-comment
+    integration:
+      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
+    name: Update PR comment
+    position:
+      x: 3312
+      "y": 120
+    type: TYPE_ACTION
+  - component: annotation
+    configuration:
+      color: yellow
+      height: 128
+      text: Post a comment (or update it) on GitHub
+      width: 328
+    id: annotation-note-7c5j8u
+    name: Note
+    position:
+      x: 2664
+      "y": 72
+    type: TYPE_WIDGET
   - component: discord.sendTextMessage
     configuration:
       channel: '1518301668758782022'
@@ -95,59 +156,6 @@ spec:
     position:
       x: 2664
       "y": 984
-    type: TYPE_ACTION
-  - component: upsertMemory
-    configuration:
-      matchList:
-      - name: repository
-        value: '{{ $["Format PR review"].data.result.repository }}'
-      - name: pr_number
-        value: '{{ $["Format PR review"].data.result.pr_number }}'
-      namespace: prRiskChecks
-      valueList:
-      - name: repository
-        value: '{{ $["Format PR review"].data.result.repository }}'
-      - name: pr_number
-        value: '{{ $["Format PR review"].data.result.pr_number }}'
-      - name: title
-        value: '{{ $["Format PR review"].data.result.title }}'
-      - name: author
-        value: '{{ $["Format PR review"].data.result.author }}'
-      - name: satisfied
-        value: '{{ $["Format PR review"].data.result.satisfied == true ? "true" :
-          "false" }}'
-      - name: risk_score
-        value: '{{ $["Format PR review"].data.result.risk_score }}'
-      - name: risk_level
-        value: '{{ $["Format PR review"].data.result.risk_level }}'
-      - name: recommended_reviewers
-        value: '{{ $["Format PR review"].data.result.recommended_reviewers }}'
-      - name: llm_summary
-        value: '{{ $["Format PR review"].data.result.llm_summary }}'
-      - name: llm_approved
-        value: '{{ $["Format PR review"].data.result.llm_approved == true ? "true"
-          : "false" }}'
-      - name: last_checked_at
-        value: "{{ int(now().Unix()) }}"
-    id: upsertmemory-record-check-c410f8
-    name: Record check
-    position:
-      x: 2664
-      "y": 1272
-    type: TYPE_ACTION
-  - component: github.updateIssueComment
-    configuration:
-      body: '{{ $["Format PR review"].data.result.comment_body }}'
-      commentId: '{{ $["Read PR comment memory"].data.values[0].review_comment_id
-        }}'
-      repository: '{{ $["Format PR review"].data.result.repository_name }}'
-    id: github-update-pr-comment
-    integration:
-      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
-    name: Update PR comment
-    position:
-      x: 3312
-      "y": 120
     type: TYPE_ACTION
   - component: runnerJS
     configuration:
@@ -470,6 +478,111 @@ spec:
       x: 2040
       "y": 816
     type: TYPE_ACTION
+  - component: github.addPullRequestReviewers
+    configuration:
+      pullNumber: '{{ $["Format PR review"].data.result.pr_number }}'
+      repository: '{{ $["Format PR review"].data.result.repository_name }}'
+      reviewers:
+      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 0 ? $["Format
+        PR review"].data.result.reviewers_to_request[0] : "" }}'
+      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 1 ? $["Format
+        PR review"].data.result.reviewers_to_request[1] : "" }}'
+      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 2 ? $["Format
+        PR review"].data.result.reviewers_to_request[2] : "" }}'
+      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 3 ? $["Format
+        PR review"].data.result.reviewers_to_request[3] : "" }}'
+      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 4 ? $["Format
+        PR review"].data.result.reviewers_to_request[4] : "" }}'
+      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 5 ? $["Format
+        PR review"].data.result.reviewers_to_request[5] : "" }}'
+      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 6 ? $["Format
+        PR review"].data.result.reviewers_to_request[6] : "" }}'
+      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 7 ? $["Format
+        PR review"].data.result.reviewers_to_request[7] : "" }}'
+      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 8 ? $["Format
+        PR review"].data.result.reviewers_to_request[8] : "" }}'
+      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 9 ? $["Format
+        PR review"].data.result.reviewers_to_request[9] : "" }}'
+    id: add-pull-request-reviewers
+    integration:
+      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
+    name: Add pull request reviewers
+    position:
+      x: 3312
+      "y": 720
+    type: TYPE_ACTION
+  - component: annotation
+    configuration:
+      color: yellow
+      height: 120
+      text: If the risk is high, request review
+      width: 304
+    id: annotation-note-2-9dv0lv
+    name: Note 2
+    position:
+      x: 2664
+      "y": 552
+    type: TYPE_WIDGET
+  - component: upsertMemory
+    configuration:
+      matchList:
+      - name: repository
+        value: '{{ $["Format PR review"].data.result.repository }}'
+      - name: pr_number
+        value: '{{ $["Format PR review"].data.result.pr_number }}'
+      namespace: prRiskChecks
+      valueList:
+      - name: repository
+        value: '{{ $["Format PR review"].data.result.repository }}'
+      - name: pr_number
+        value: '{{ $["Format PR review"].data.result.pr_number }}'
+      - name: review_comment_id
+        value: '{{ string($["Create PR comment"].data.id) }}'
+    id: upsert-pr-comment-memory
+    name: Remember PR comment
+    position:
+      x: 3840
+      "y": 288
+    type: TYPE_ACTION
+  - component: upsertMemory
+    configuration:
+      matchList:
+      - name: repository
+        value: '{{ $["Format PR review"].data.result.repository }}'
+      - name: pr_number
+        value: '{{ $["Format PR review"].data.result.pr_number }}'
+      namespace: prRiskChecks
+      valueList:
+      - name: repository
+        value: '{{ $["Format PR review"].data.result.repository }}'
+      - name: pr_number
+        value: '{{ $["Format PR review"].data.result.pr_number }}'
+      - name: title
+        value: '{{ $["Format PR review"].data.result.title }}'
+      - name: author
+        value: '{{ $["Format PR review"].data.result.author }}'
+      - name: satisfied
+        value: '{{ $["Format PR review"].data.result.satisfied == true ? "true" :
+          "false" }}'
+      - name: risk_score
+        value: '{{ $["Format PR review"].data.result.risk_score }}'
+      - name: risk_level
+        value: '{{ $["Format PR review"].data.result.risk_level }}'
+      - name: recommended_reviewers
+        value: '{{ $["Format PR review"].data.result.recommended_reviewers }}'
+      - name: llm_summary
+        value: '{{ $["Format PR review"].data.result.llm_summary }}'
+      - name: llm_approved
+        value: '{{ $["Format PR review"].data.result.llm_approved == true ? "true"
+          : "false" }}'
+      - name: last_checked_at
+        value: "{{ int(now().Unix()) }}"
+    id: upsertmemory-record-check-c410f8
+    name: Record check
+    position:
+      x: 2664
+      "y": 1272
+    type: TYPE_ACTION
   - component: start
     configuration:
       templates:
@@ -542,117 +655,3 @@ spec:
       x: 1512
       "y": 816
     type: TYPE_ACTION
-  - component: readMemory
-    configuration:
-      emitMode: allAtOnce
-      matchList:
-      - name: repository
-        value: '{{ $["Format PR review"].data.result.repository }}'
-      - name: pr_number
-        value: '{{ $["Format PR review"].data.result.pr_number }}'
-      namespace: prRiskChecks
-      resultMode: latest
-    id: read-pr-comment-memory
-    name: Read PR comment memory
-    position:
-      x: 2664
-      "y": 240
-    type: TYPE_ACTION
-  - component: github.addPullRequestReviewers
-    configuration:
-      pullNumber: '{{ $["Format PR review"].data.result.pr_number }}'
-      repository: '{{ $["Format PR review"].data.result.repository_name }}'
-      reviewers:
-      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 0 ? $["Format
-        PR review"].data.result.reviewers_to_request[0] : "" }}'
-      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 1 ? $["Format
-        PR review"].data.result.reviewers_to_request[1] : "" }}'
-      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 2 ? $["Format
-        PR review"].data.result.reviewers_to_request[2] : "" }}'
-      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 3 ? $["Format
-        PR review"].data.result.reviewers_to_request[3] : "" }}'
-      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 4 ? $["Format
-        PR review"].data.result.reviewers_to_request[4] : "" }}'
-      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 5 ? $["Format
-        PR review"].data.result.reviewers_to_request[5] : "" }}'
-      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 6 ? $["Format
-        PR review"].data.result.reviewers_to_request[6] : "" }}'
-      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 7 ? $["Format
-        PR review"].data.result.reviewers_to_request[7] : "" }}'
-      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 8 ? $["Format
-        PR review"].data.result.reviewers_to_request[8] : "" }}'
-      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 9 ? $["Format
-        PR review"].data.result.reviewers_to_request[9] : "" }}'
-    id: add-pull-request-reviewers
-    integration:
-      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
-    name: Add pull request reviewers
-    position:
-      x: 3312
-      "y": 720
-    type: TYPE_ACTION
-  - component: annotation
-    configuration:
-      color: yellow
-      height: 128
-      text: Post a comment (or update it) on GitHub
-      width: 328
-    id: annotation-note-7c5j8u
-    name: Note
-    position:
-      x: 2664
-      "y": 72
-    type: TYPE_WIDGET
-  - component: annotation
-    configuration:
-      color: yellow
-      height: 120
-      text: If the risk is high, request review
-      width: 304
-    id: annotation-note-2-9dv0lv
-    name: Note 2
-    position:
-      x: 2664
-      "y": 552
-    type: TYPE_WIDGET
-  - component: upsertMemory
-    configuration:
-      matchList:
-      - name: repository
-        value: '{{ $["Format PR review"].data.result.repository }}'
-      - name: pr_number
-        value: '{{ $["Format PR review"].data.result.pr_number }}'
-      namespace: prRiskChecks
-      valueList:
-      - name: repository
-        value: '{{ $["Format PR review"].data.result.repository }}'
-      - name: pr_number
-        value: '{{ $["Format PR review"].data.result.pr_number }}'
-      - name: review_comment_id
-        value: '{{ string($["Create PR comment"].data.id) }}'
-    id: upsert-pr-comment-memory
-    name: Remember PR comment
-    position:
-      x: 3840
-      "y": 288
-    type: TYPE_ACTION
-  - component: github.onPullRequest
-    configuration:
-      actions:
-      - opened
-      - synchronize
-      - reopened
-      repository: superplane
-    id: trigger-on-pull-request
-    integration:
-      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
-    metadata:
-      repository:
-        id: 979560403.0
-        name: superplane
-        url: https://github.com/superplanehq/superplane
-    name: On Pull Request
-    position:
-      x: 432
-      "y": 696
-    type: TYPE_TRIGGER
