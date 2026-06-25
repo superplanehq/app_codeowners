@@ -45,6 +45,620 @@ spec:
     sourceId: read-pr-comment-memory
     targetId: discord-notify-review
   nodes:
+  - component: annotation
+    configuration:
+      color: yellow
+      height: 128
+      text: Post a comment (or update it) on GitHub
+      width: 328
+    id: annotation-note-7c5j8u
+    name: Note
+    position:
+      x: 3000
+      "y": -144
+    type: TYPE_WIDGET
+  - component: readMemory
+    configuration:
+      emitMode: allAtOnce
+      matchList:
+      - name: repository
+        value: '{{ $["Format PR review"].data.result.repository }}'
+      - name: pr_number
+        value: '{{ $["Format PR review"].data.result.pr_number }}'
+      namespace: prRiskChecks
+      resultMode: latest
+    id: read-pr-comment-memory
+    name: Read PR comment memory
+    position:
+      x: 3000
+      "y": 24
+    type: TYPE_ACTION
+  - component: github.onPullRequest
+    configuration:
+      actions:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      repository: superplane
+    id: trigger-on-pull-request
+    integration:
+      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
+    metadata:
+      repository:
+        id: 979560403.0
+        name: superplane
+        url: https://github.com/superplanehq/superplane
+    name: On Pull Request
+    position:
+      x: 552
+      "y": 768
+    type: TYPE_TRIGGER
+  - component: github.addPullRequestReviewers
+    configuration:
+      pullNumber: '{{ $["Format PR review"].data.result.pr_number }}'
+      repository: '{{ $["Format PR review"].data.result.repository_name }}'
+      reviewers:
+      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 0 ? $["Format
+        PR review"].data.result.reviewers_to_request[0] : "" }}'
+      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 1 ? $["Format
+        PR review"].data.result.reviewers_to_request[1] : "" }}'
+      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 2 ? $["Format
+        PR review"].data.result.reviewers_to_request[2] : "" }}'
+      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 3 ? $["Format
+        PR review"].data.result.reviewers_to_request[3] : "" }}'
+      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 4 ? $["Format
+        PR review"].data.result.reviewers_to_request[4] : "" }}'
+      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 5 ? $["Format
+        PR review"].data.result.reviewers_to_request[5] : "" }}'
+      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 6 ? $["Format
+        PR review"].data.result.reviewers_to_request[6] : "" }}'
+      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 7 ? $["Format
+        PR review"].data.result.reviewers_to_request[7] : "" }}'
+      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 8 ? $["Format
+        PR review"].data.result.reviewers_to_request[8] : "" }}'
+      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 9 ? $["Format
+        PR review"].data.result.reviewers_to_request[9] : "" }}'
+    id: add-pull-request-reviewers
+    integration:
+      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
+    name: Add pull request reviewers
+    position:
+      x: 3600
+      "y": 672
+    type: TYPE_ACTION
+  - component: discord.sendTextMessage
+    configuration:
+      channel: '1518301668758782022'
+      content: '{{ $["Format PR review"].data.result.discord_message }}'
+    id: discord-notify-review
+    integration:
+      id: 8687b0b7-6482-43fe-b1cd-67b679985928
+    metadata:
+      channel:
+        id: '1518301668758782022'
+        name: "\U0001F440︱gh-pull-request-stream"
+      hasEmbed: false
+    name: Discord review posted
+    position:
+      x: 3648
+      "y": 360
+    type: TYPE_ACTION
+  - component: if
+    configuration:
+      expression: '{{ root().data.pull_request.base.ref == "main" && root().data.pull_request.draft
+        != true }}'
+    id: if-targets-main
+    name: Should assess?
+    position:
+      x: 1080
+      "y": 768
+    type: TYPE_ACTION
+  - component: runnerJS
+    configuration:
+      execution_mode: host
+      execution_timeout_seconds: 120
+      machine_type: e1-tiny-amd64
+      script: |-
+        const COMMENT_MARKER = "<!-- superplane-pr-risk-review -->";
+        const MAIN_BRANCHES = ["main", "master"];
+
+        function nodeData(payload, name) {
+          const entry = payload[name] || {};
+          const data = entry.data || {};
+          return data && typeof data === "object" ? data : {};
+        }
+
+        function normalizeRepo(value) {
+          let repo = String(value || "").trim();
+          for (const prefix of ["https://github.com/", "http://github.com/"]) {
+            if (repo.toLowerCase().startsWith(prefix)) repo = repo.slice(prefix.length);
+          }
+          if (repo.toLowerCase().endsWith(".git")) repo = repo.slice(0, -4);
+          return repo.replace(/^\/+|\/+$/g, "");
+        }
+
+        function normalizeLogin(value) {
+          return String(value || "")
+            .trim()
+            .replace(/^@/, "")
+            .toLowerCase();
+        }
+
+        function asStringArray(value) {
+          if (value == null) return [];
+          if (Array.isArray(value)) return value;
+          if (typeof value === "string") {
+            const trimmed = value.trim();
+            return trimmed ? [trimmed] : [];
+          }
+          if (typeof value === "object") return [value];
+          return [String(value)];
+        }
+
+        function resolvePrContext(payload) {
+          const manual = nodeData(payload, "Check PR");
+          if (manual.pull_number) {
+            const repo = normalizeRepo(manual.repository);
+            return {
+              manual: true,
+              action: String(manual.action || "manual"),
+              repository: repo,
+              repository_name: repo.split("/").pop() || repo,
+              pr_number: String(manual.pull_number).trim(),
+              title: "",
+              author: "",
+              head_sha: "",
+              base_branch: "",
+              draft: false,
+            };
+          }
+
+          const data = nodeData(payload, "On Pull Request");
+          if (data && Object.keys(data).length) {
+            const pr = data.pull_request || {};
+            const repo = data.repository || {};
+            const fullName = normalizeRepo(repo.full_name || repo.name || "");
+            return {
+              manual: false,
+              action: String(data.action || ""),
+              repository: fullName,
+              repository_name: String(repo.name || fullName.split("/").pop() || ""),
+              pr_number: String(pr.number || ""),
+              title: String(pr.title || ""),
+              author: String((pr.user && pr.user.login) || ""),
+              head_sha: String((pr.head && pr.head.sha) || ""),
+              base_branch: String((pr.base && pr.base.ref) || ""),
+              draft: pr.draft === true,
+            };
+          }
+
+          return {
+            manual: false,
+            action: "",
+            repository: "",
+            repository_name: "",
+            pr_number: "",
+            title: "",
+            author: "",
+            head_sha: "",
+            base_branch: "",
+            draft: false,
+          };
+        }
+
+        function buildSkippedResult(ctx, reason) {
+          const repository = ctx.repository;
+          const prNumber = ctx.pr_number;
+          return {
+            valid: true,
+            satisfied: true,
+            skipped: true,
+            repository: repository,
+            repository_name: ctx.repository_name || repository.split("/").pop() || repository,
+            pr_number: String(prNumber),
+            title: ctx.title,
+            author: ctx.author,
+            head_sha: ctx.head_sha,
+            base_branch: ctx.base_branch,
+            manual: ctx.manual,
+            reviewers_to_request: [],
+            risk_score: 0,
+            risk_level: "low",
+            recommended_reviewers: "",
+            llm_summary: "",
+            llm_approved: true,
+            comment_body: "",
+            pr_url: repository && prNumber ? "https://github.com/" + repository + "/pull/" + prNumber : "",
+            discord_message: "",
+            reason: reason,
+          };
+        }
+
+        function parseReviewerDetails(parsed) {
+          if (!Array.isArray(parsed.reviewers)) return [];
+          return parsed.reviewers
+            .map(function (entry) {
+              if (!entry || typeof entry !== "object") return null;
+              const person = normalizeLogin(entry.person);
+              if (!person) return null;
+              return {
+                person: person,
+                required: entry.required === true || String(entry.required).toLowerCase() === "true",
+                reason: String(entry.reason || "").trim(),
+              };
+            })
+            .filter(Boolean);
+        }
+
+        function mergeRecommendedReviewers(parsed) {
+          const merged = [];
+          const seen = {};
+          const add = function (login) {
+            const normalized = normalizeLogin(login);
+            if (!normalized || seen[normalized]) return;
+            seen[normalized] = true;
+            merged.push(normalized);
+          };
+
+          for (const login of asStringArray(parsed.recommended_reviewers)) add(login);
+          for (const reviewer of parseReviewerDetails(parsed)) add(reviewer.person);
+          return merged;
+        }
+
+        function normalizeConcerns(concerns) {
+          return asStringArray(concerns)
+            .map(function (concern) {
+              return String(concern).replace(/\s+/g, " ").trim();
+            })
+            .filter(Boolean)
+            .slice(0, 8);
+        }
+
+        function riskLevelFromScore(score) {
+          if (score <= 20) return "very low";
+          if (score <= 40) return "low";
+          if (score <= 60) return "medium";
+          if (score <= 80) return "high";
+          return "critical";
+        }
+
+        function maxReviewersForRisk(score) {
+          if (score <= 20) return 1;
+          if (score <= 40) return 1;
+          if (score <= 60) return 2;
+          if (score <= 80) return 3;
+          return 10;
+        }
+
+        function parseLlmReview(text) {
+          const raw = String(text || "").trim();
+          if (!raw) {
+            return {
+              risk_score: 50,
+              risk_level: "medium",
+              approved: false,
+              summary: "Claude returned an empty review.",
+              concerns: [],
+              recommended_reviewers: [],
+              reviewer_details: [],
+            };
+          }
+          let jsonText = raw;
+          const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+          if (fence) jsonText = fence[1].trim();
+          const start = jsonText.indexOf("{");
+          const end = jsonText.lastIndexOf("}");
+          if (start !== -1 && end !== -1) jsonText = jsonText.slice(start, end + 1);
+          try {
+            const parsed = JSON.parse(jsonText);
+            const riskScore = Math.max(0, Math.min(100, Number(parsed.risk_score) || 0));
+            const riskLevel = riskLevelFromScore(riskScore);
+            return {
+              risk_score: riskScore,
+              risk_level: riskLevel,
+              approved: parsed.approved === true || String(parsed.approved).toLowerCase() === "true",
+              summary: String(parsed.summary || "").trim(),
+              concerns: normalizeConcerns(parsed.concerns),
+              recommended_reviewers: mergeRecommendedReviewers(parsed),
+              reviewer_details: parseReviewerDetails(parsed),
+              title: String(parsed.title || "").trim(),
+              author: normalizeLogin(parsed.author),
+              repository: normalizeRepo(parsed.repository),
+              pr_number: String(parsed.pr_number || parsed.pull_number || "").trim(),
+            };
+          } catch (error) {
+            return {
+              risk_score: 50,
+              risk_level: "medium",
+              approved: false,
+              summary: "Could not parse Claude review JSON.",
+              concerns: [raw.slice(0, 500)],
+              recommended_reviewers: [],
+              reviewer_details: [],
+            };
+          }
+        }
+
+        function markCommentBody(body) {
+          const text = String(body || "");
+          if (!text) return "";
+          if (text.indexOf(COMMENT_MARKER) === 0) return text;
+          return COMMENT_MARKER + "\n" + text;
+        }
+
+        function mergeReviewers(expertReviewers, author, maxReviewers) {
+          const authorNorm = normalizeLogin(author);
+          const merged = [];
+          const seen = {};
+          for (const login of expertReviewers || []) {
+            const normalized = normalizeLogin(login);
+            if (!normalized || normalized === authorNorm || seen[normalized]) continue;
+            seen[normalized] = true;
+            merged.push(normalized);
+            if (merged.length >= maxReviewers) break;
+          }
+          return merged;
+        }
+
+        function truncateStatusReason(text) {
+          const value = String(text || "").trim();
+          if (value.length <= 140) return value;
+          return value.slice(0, 137) + "...";
+        }
+
+        function buildStatusReason(llm, valid, llmApproved, reviewersToRequest) {
+          let reason = "Risk: " + llm.risk_score + "/100 (" + llm.risk_level + ").";
+          if (!llmApproved) {
+            reason = "Review: changes requested. " + reason;
+          } else if (valid) {
+            reason = "Approved. " + reason;
+          }
+          if (valid && reviewersToRequest.length) {
+            reason +=
+              " Requested " +
+              reviewersToRequest.length +
+              " reviewer" +
+              (reviewersToRequest.length === 1 ? "" : "s") +
+              ".";
+          }
+          return truncateStatusReason(reason);
+        }
+
+        function buildDiscordMessage(title, prUrl, author, riskScore, riskLevel, prNumber) {
+          const label =
+            String(title || "")
+              .trim()
+              .replace(/[\[\]]/g, "") || "PR #" + prNumber;
+          return (
+            "[" +
+            label +
+            "](<" +
+            prUrl +
+            ">) - " +
+            String(author || "unknown") +
+            " - Risk " +
+            riskScore +
+            "/100 (" +
+            riskLevel +
+            ")"
+          );
+        }
+
+        function buildCommentBody(llm) {
+          const lines = [];
+          lines.push("**Risk:** " + llm.risk_score + "/100 (" + llm.risk_level + ")");
+          lines.push("");
+          if (llm.summary) {
+            lines.push("### Summary");
+            lines.push(llm.summary);
+            lines.push("");
+          }
+          if (llm.concerns && llm.concerns.length) {
+            lines.push("### Concerns");
+            for (const concern of llm.concerns) {
+              lines.push("- " + concern);
+            }
+            lines.push("");
+          }
+          if (llm.recommended_reviewers && llm.recommended_reviewers.length) {
+            lines.push("**Recommended reviewers:** " + llm.recommended_reviewers.join(", "));
+            lines.push("");
+          }
+          return lines.join("\n").trim();
+        }
+
+        async function main() {
+          const ctx = resolvePrContext($);
+
+          if (!ctx.manual && ctx.draft) {
+            return buildSkippedResult(ctx, "Skipped: pull request is a draft.");
+          }
+
+          if (!ctx.manual && ctx.base_branch && MAIN_BRANCHES.indexOf(ctx.base_branch) === -1) {
+            return buildSkippedResult(ctx, "Skipped: base branch is not main or master.");
+          }
+
+          const agent = nodeData($, "Assess PR Risk");
+          const lastMessage = String(agent.lastMessage || "").trim();
+          if (!lastMessage) {
+            throw new Error("Assess PR Risk returned no message.");
+          }
+          const llmParsed = parseLlmReview(lastMessage);
+
+          const repository = llmParsed.repository || ctx.repository;
+          const prNumber = llmParsed.pr_number || ctx.pr_number;
+          const title = llmParsed.title || ctx.title;
+          const author = llmParsed.author || ctx.author;
+          const headSha = ctx.head_sha;
+          const baseBranch = ctx.base_branch;
+
+          if (!repository || !prNumber) {
+            throw new Error("Missing repository or pull request number from trigger or Claude review JSON.");
+          }
+
+          const llm = {
+            risk_score: llmParsed.risk_score,
+            risk_level: llmParsed.risk_level,
+            approved: llmParsed.approved === true,
+            summary: llmParsed.summary,
+            concerns: llmParsed.concerns,
+            recommended_reviewers: llmParsed.recommended_reviewers,
+          };
+
+          const llmApproved = llm.approved === true;
+          const valid = llmApproved;
+          const reviewersToRequest = mergeReviewers(
+            llm.recommended_reviewers,
+            author,
+            maxReviewersForRisk(llm.risk_score)
+          );
+          const reason = buildStatusReason(llm, valid, llmApproved, reviewersToRequest);
+          const commentBody = markCommentBody(buildCommentBody(llm));
+          const prUrl = "https://github.com/" + repository + "/pull/" + prNumber;
+          const discordMessage = commentBody
+            ? buildDiscordMessage(title, prUrl, author, llm.risk_score, llm.risk_level, prNumber)
+            : "";
+
+          return {
+            valid: valid,
+            satisfied: valid,
+            skipped: false,
+            repository: repository,
+            repository_name: ctx.repository_name || repository.split("/").pop() || repository,
+            pr_number: String(prNumber),
+            title: title,
+            author: author,
+            head_sha: headSha,
+            base_branch: baseBranch,
+            manual: ctx.manual,
+            reviewers_to_request: reviewersToRequest,
+            risk_score: llm.risk_score,
+            risk_level: llm.risk_level,
+            recommended_reviewers: llm.recommended_reviewers.join(", "),
+            llm_summary: llm.summary,
+            llm_approved: llmApproved,
+            llm_concerns: llm.concerns.join("; "),
+            comment_body: commentBody,
+            pr_url: prUrl,
+            discord_message: discordMessage,
+            reason: reason,
+          };
+        }
+    id: format-pr-review
+    name: Format PR review
+    position:
+      x: 2208
+      "y": 672
+    type: TYPE_ACTION
+  - component: upsertMemory
+    configuration:
+      matchList:
+      - name: repository
+        value: '{{ $["Format PR review"].data.result.repository }}'
+      - name: pr_number
+        value: '{{ $["Format PR review"].data.result.pr_number }}'
+      namespace: prRiskChecks
+      valueList:
+      - name: repository
+        value: '{{ $["Format PR review"].data.result.repository }}'
+      - name: pr_number
+        value: '{{ $["Format PR review"].data.result.pr_number }}'
+      - name: title
+        value: '{{ $["Format PR review"].data.result.title }}'
+      - name: author
+        value: '{{ $["Format PR review"].data.result.author }}'
+      - name: satisfied
+        value: '{{ $["Format PR review"].data.result.satisfied == true ? "true" :
+          "false" }}'
+      - name: risk_score
+        value: '{{ $["Format PR review"].data.result.risk_score }}'
+      - name: risk_level
+        value: '{{ $["Format PR review"].data.result.risk_level }}'
+      - name: recommended_reviewers
+        value: '{{ $["Format PR review"].data.result.recommended_reviewers }}'
+      - name: llm_summary
+        value: '{{ $["Format PR review"].data.result.llm_summary }}'
+      - name: llm_approved
+        value: '{{ $["Format PR review"].data.result.llm_approved == true ? "true"
+          : "false" }}'
+      - name: last_checked_at
+        value: "{{ int(now().Unix()) }}"
+    id: upsertmemory-record-check-c410f8
+    name: Record check
+    position:
+      x: 2976
+      "y": 936
+    type: TYPE_ACTION
+  - component: annotation
+    configuration:
+      color: yellow
+      height: 120
+      text: If the risk is high, request review
+      width: 304
+    id: annotation-note-2-9dv0lv
+    name: Note 2
+    position:
+      x: 2976
+      "y": 504
+    type: TYPE_WIDGET
+  - component: github.createIssueComment
+    configuration:
+      body: '{{ $["Format PR review"].data.result.comment_body }}'
+      issueNumber: '{{ $["Format PR review"].data.result.pr_number }}'
+      repository: '{{ $["Format PR review"].data.result.repository_name }}'
+    id: github-create-pr-comment
+    integration:
+      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
+    name: Create PR comment
+    position:
+      x: 3648
+      "y": 144
+    type: TYPE_ACTION
+  - component: start
+    configuration:
+      templates:
+      - name: run
+        parameters:
+        - name: repository
+          placeholder: e.g. superplanehq/superplane
+          title: Repository
+          type: string
+        - name: pull_number
+          placeholder: e.g. 1234
+          title: Pull request number
+          type: string
+        payload:
+          action: manual
+          pull_number: "{{ parameters.pull_number }}"
+          repository: "{{ parameters.repository }}"
+    id: trigger-check-pr
+    name: Check PR
+    position:
+      x: 1080
+      "y": 552
+    type: TYPE_TRIGGER
+  - component: upsertMemory
+    configuration:
+      matchList:
+      - name: repository
+        value: '{{ $["Format PR review"].data.result.repository }}'
+      - name: pr_number
+        value: '{{ $["Format PR review"].data.result.pr_number }}'
+      namespace: prRiskChecks
+      valueList:
+      - name: repository
+        value: '{{ $["Format PR review"].data.result.repository }}'
+      - name: pr_number
+        value: '{{ $["Format PR review"].data.result.pr_number }}'
+      - name: review_comment_id
+        value: '{{ string($["Create PR comment"].data.id) }}'
+    id: upsert-pr-comment-memory
+    name: Remember PR comment
+    position:
+      x: 4176
+      "y": 144
+    type: TYPE_ACTION
   - component: github.updateIssueComment
     configuration:
       body: '{{ $["Format PR review"].data.result.comment_body }}'
@@ -215,419 +829,6 @@ spec:
       x: 1704
       "y": 672
     type: TYPE_ACTION
-  - component: readMemory
-    configuration:
-      emitMode: allAtOnce
-      matchList:
-      - name: repository
-        value: '{{ $["Format PR review"].data.result.repository }}'
-      - name: pr_number
-        value: '{{ $["Format PR review"].data.result.pr_number }}'
-      namespace: prRiskChecks
-      resultMode: latest
-    id: read-pr-comment-memory
-    name: Read PR comment memory
-    position:
-      x: 3000
-      "y": 24
-    type: TYPE_ACTION
-  - component: runnerJS
-    configuration:
-      execution_mode: host
-      execution_timeout_seconds: 120
-      machine_type: e1-tiny-amd64
-      script: |-
-        const COMMENT_MARKER = "<!-- superplane-pr-risk-review -->";
-        const MAIN_BRANCHES = ["main", "master"];
-        
-        function nodeData(payload, name) {
-          const entry = payload[name] || {};
-          const data = entry.data || {};
-          return data && typeof data === "object" ? data : {};
-        }
-        
-        function normalizeRepo(value) {
-          let repo = String(value || "").trim();
-          for (const prefix of ["https://github.com/", "http://github.com/"]) {
-            if (repo.toLowerCase().startsWith(prefix)) repo = repo.slice(prefix.length);
-          }
-          if (repo.toLowerCase().endsWith(".git")) repo = repo.slice(0, -4);
-          return repo.replace(/^\/+|\/+$/g, "");
-        }
-        
-        function normalizeLogin(value) {
-          return String(value || "")
-            .trim()
-            .replace(/^@/, "")
-            .toLowerCase();
-        }
-        
-        function asStringArray(value) {
-          if (value == null) return [];
-          if (Array.isArray(value)) return value;
-          if (typeof value === "string") {
-            const trimmed = value.trim();
-            return trimmed ? [trimmed] : [];
-          }
-          if (typeof value === "object") return [value];
-          return [String(value)];
-        }
-        
-        function resolvePrContext(payload) {
-          const manual = nodeData(payload, "Check PR");
-          if (manual.pull_number) {
-            const repo = normalizeRepo(manual.repository);
-            return {
-              manual: true,
-              action: String(manual.action || "manual"),
-              repository: repo,
-              repository_name: repo.split("/").pop() || repo,
-              pr_number: String(manual.pull_number).trim(),
-              title: "",
-              author: "",
-              head_sha: "",
-              base_branch: "",
-              draft: false,
-            };
-          }
-        
-          const data = nodeData(payload, "On Pull Request");
-          if (data && Object.keys(data).length) {
-            const pr = data.pull_request || {};
-            const repo = data.repository || {};
-            const fullName = normalizeRepo(repo.full_name || repo.name || "");
-            return {
-              manual: false,
-              action: String(data.action || ""),
-              repository: fullName,
-              repository_name: String(repo.name || fullName.split("/").pop() || ""),
-              pr_number: String(pr.number || ""),
-              title: String(pr.title || ""),
-              author: String((pr.user && pr.user.login) || ""),
-              head_sha: String((pr.head && pr.head.sha) || ""),
-              base_branch: String((pr.base && pr.base.ref) || ""),
-              draft: pr.draft === true,
-            };
-          }
-        
-          return {
-            manual: false,
-            action: "",
-            repository: "",
-            repository_name: "",
-            pr_number: "",
-            title: "",
-            author: "",
-            head_sha: "",
-            base_branch: "",
-            draft: false,
-          };
-        }
-        
-        function buildSkippedResult(ctx, reason) {
-          const repository = ctx.repository;
-          const prNumber = ctx.pr_number;
-          return {
-            valid: true,
-            satisfied: true,
-            skipped: true,
-            repository: repository,
-            repository_name: ctx.repository_name || repository.split("/").pop() || repository,
-            pr_number: String(prNumber),
-            title: ctx.title,
-            author: ctx.author,
-            head_sha: ctx.head_sha,
-            base_branch: ctx.base_branch,
-            manual: ctx.manual,
-            reviewers_to_request: [],
-            risk_score: 0,
-            risk_level: "low",
-            recommended_reviewers: "",
-            llm_summary: "",
-            llm_approved: true,
-            comment_body: "",
-            pr_url: repository && prNumber ? "https://github.com/" + repository + "/pull/" + prNumber : "",
-            discord_message: "",
-            reason: reason,
-          };
-        }
-        
-        function parseReviewerDetails(parsed) {
-          if (!Array.isArray(parsed.reviewers)) return [];
-          return parsed.reviewers
-            .map(function (entry) {
-              if (!entry || typeof entry !== "object") return null;
-              const person = normalizeLogin(entry.person);
-              if (!person) return null;
-              return {
-                person: person,
-                required: entry.required === true || String(entry.required).toLowerCase() === "true",
-                reason: String(entry.reason || "").trim(),
-              };
-            })
-            .filter(Boolean);
-        }
-        
-        function mergeRecommendedReviewers(parsed) {
-          const merged = [];
-          const seen = {};
-          const add = function (login) {
-            const normalized = normalizeLogin(login);
-            if (!normalized || seen[normalized]) return;
-            seen[normalized] = true;
-            merged.push(normalized);
-          };
-        
-          for (const login of asStringArray(parsed.recommended_reviewers)) add(login);
-          for (const reviewer of parseReviewerDetails(parsed)) add(reviewer.person);
-          return merged;
-        }
-        
-        function normalizeConcerns(concerns) {
-          return asStringArray(concerns)
-            .map(function (concern) {
-              return String(concern).replace(/\s+/g, " ").trim();
-            })
-            .filter(Boolean)
-            .slice(0, 8);
-        }
-        
-        function riskLevelFromScore(score) {
-          if (score <= 20) return "very low";
-          if (score <= 40) return "low";
-          if (score <= 60) return "medium";
-          if (score <= 80) return "high";
-          return "critical";
-        }
-        
-        function maxReviewersForRisk(score) {
-          if (score <= 20) return 1;
-          if (score <= 40) return 1;
-          if (score <= 60) return 2;
-          if (score <= 80) return 3;
-          return 10;
-        }
-        
-        function parseLlmReview(text) {
-          const raw = String(text || "").trim();
-          if (!raw) {
-            return {
-              risk_score: 50,
-              risk_level: "medium",
-              approved: false,
-              summary: "Claude returned an empty review.",
-              concerns: [],
-              recommended_reviewers: [],
-              reviewer_details: [],
-            };
-          }
-          let jsonText = raw;
-          const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-          if (fence) jsonText = fence[1].trim();
-          const start = jsonText.indexOf("{");
-          const end = jsonText.lastIndexOf("}");
-          if (start !== -1 && end !== -1) jsonText = jsonText.slice(start, end + 1);
-          try {
-            const parsed = JSON.parse(jsonText);
-            const riskScore = Math.max(0, Math.min(100, Number(parsed.risk_score) || 0));
-            const riskLevel = riskLevelFromScore(riskScore);
-            return {
-              risk_score: riskScore,
-              risk_level: riskLevel,
-              approved: parsed.approved === true || String(parsed.approved).toLowerCase() === "true",
-              summary: String(parsed.summary || "").trim(),
-              concerns: normalizeConcerns(parsed.concerns),
-              recommended_reviewers: mergeRecommendedReviewers(parsed),
-              reviewer_details: parseReviewerDetails(parsed),
-              title: String(parsed.title || "").trim(),
-              author: normalizeLogin(parsed.author),
-              repository: normalizeRepo(parsed.repository),
-              pr_number: String(parsed.pr_number || parsed.pull_number || "").trim(),
-            };
-          } catch (error) {
-            return {
-              risk_score: 50,
-              risk_level: "medium",
-              approved: false,
-              summary: "Could not parse Claude review JSON.",
-              concerns: [raw.slice(0, 500)],
-              recommended_reviewers: [],
-              reviewer_details: [],
-            };
-          }
-        }
-        
-        function markCommentBody(body) {
-          const text = String(body || "");
-          if (!text) return "";
-          if (text.indexOf(COMMENT_MARKER) === 0) return text;
-          return COMMENT_MARKER + "\n" + text;
-        }
-        
-        function mergeReviewers(expertReviewers, author, maxReviewers) {
-          const authorNorm = normalizeLogin(author);
-          const merged = [];
-          const seen = {};
-          for (const login of expertReviewers || []) {
-            const normalized = normalizeLogin(login);
-            if (!normalized || normalized === authorNorm || seen[normalized]) continue;
-            seen[normalized] = true;
-            merged.push(normalized);
-            if (merged.length >= maxReviewers) break;
-          }
-          return merged;
-        }
-        
-        function truncateStatusReason(text) {
-          const value = String(text || "").trim();
-          if (value.length <= 140) return value;
-          return value.slice(0, 137) + "...";
-        }
-        
-        function buildStatusReason(llm, valid, llmApproved, reviewersToRequest) {
-          let reason = "Risk: " + llm.risk_score + "/100 (" + llm.risk_level + ").";
-          if (!llmApproved) {
-            reason = "Review: changes requested. " + reason;
-          } else if (valid) {
-            reason = "Approved. " + reason;
-          }
-          if (valid && reviewersToRequest.length) {
-            reason +=
-              " Requested " +
-              reviewersToRequest.length +
-              " reviewer" +
-              (reviewersToRequest.length === 1 ? "" : "s") +
-              ".";
-          }
-          return truncateStatusReason(reason);
-        }
-        
-        function buildDiscordMessage(title, prUrl, author, riskScore, riskLevel, prNumber) {
-          const label =
-            String(title || "")
-              .trim()
-              .replace(/[\[\]]/g, "") || "PR #" + prNumber;
-          return (
-            "[" +
-            label +
-            "](<" +
-            prUrl +
-            ">) - " +
-            String(author || "unknown") +
-            " - Risk " +
-            riskScore +
-            "/100 (" +
-            riskLevel +
-            ")"
-          );
-        }
-        
-        function buildCommentBody(llm) {
-          const lines = [];
-          lines.push("**Risk:** " + llm.risk_score + "/100 (" + llm.risk_level + ")");
-          lines.push("");
-          if (llm.summary) {
-            lines.push("### Summary");
-            lines.push(llm.summary);
-            lines.push("");
-          }
-          if (llm.concerns && llm.concerns.length) {
-            lines.push("### Concerns");
-            for (const concern of llm.concerns) {
-              lines.push("- " + concern);
-            }
-            lines.push("");
-          }
-          if (llm.recommended_reviewers && llm.recommended_reviewers.length) {
-            lines.push("**Recommended reviewers:** " + llm.recommended_reviewers.join(", "));
-            lines.push("");
-          }
-          return lines.join("\n").trim();
-        }
-        
-        async function main() {
-          const ctx = resolvePrContext($);
-        
-          if (!ctx.manual && ctx.draft) {
-            return buildSkippedResult(ctx, "Skipped: pull request is a draft.");
-          }
-        
-          if (!ctx.manual && ctx.base_branch && MAIN_BRANCHES.indexOf(ctx.base_branch) === -1) {
-            return buildSkippedResult(ctx, "Skipped: base branch is not main or master.");
-          }
-        
-          const agent = nodeData($, "Assess PR Risk");
-          const lastMessage = String(agent.lastMessage || "").trim();
-          if (!lastMessage) {
-            throw new Error("Assess PR Risk returned no message.");
-          }
-          const llmParsed = parseLlmReview(lastMessage);
-        
-          const repository = llmParsed.repository || ctx.repository;
-          const prNumber = llmParsed.pr_number || ctx.pr_number;
-          const title = llmParsed.title || ctx.title;
-          const author = llmParsed.author || ctx.author;
-          const headSha = ctx.head_sha;
-          const baseBranch = ctx.base_branch;
-        
-          if (!repository || !prNumber) {
-            throw new Error("Missing repository or pull request number from trigger or Claude review JSON.");
-          }
-        
-          const llm = {
-            risk_score: llmParsed.risk_score,
-            risk_level: llmParsed.risk_level,
-            approved: llmParsed.approved === true,
-            summary: llmParsed.summary,
-            concerns: llmParsed.concerns,
-            recommended_reviewers: llmParsed.recommended_reviewers,
-          };
-        
-          const llmApproved = llm.approved === true;
-          const valid = llmApproved;
-          const reviewersToRequest = mergeReviewers(
-            llm.recommended_reviewers,
-            author,
-            maxReviewersForRisk(llm.risk_score)
-          );
-          const reason = buildStatusReason(llm, valid, llmApproved, reviewersToRequest);
-          const commentBody = markCommentBody(buildCommentBody(llm));
-          const prUrl = "https://github.com/" + repository + "/pull/" + prNumber;
-          const discordMessage = commentBody
-            ? buildDiscordMessage(title, prUrl, author, llm.risk_score, llm.risk_level, prNumber)
-            : "";
-        
-          return {
-            valid: valid,
-            satisfied: valid,
-            skipped: false,
-            repository: repository,
-            repository_name: ctx.repository_name || repository.split("/").pop() || repository,
-            pr_number: String(prNumber),
-            title: title,
-            author: author,
-            head_sha: headSha,
-            base_branch: baseBranch,
-            manual: ctx.manual,
-            reviewers_to_request: reviewersToRequest,
-            risk_score: llm.risk_score,
-            risk_level: llm.risk_level,
-            recommended_reviewers: llm.recommended_reviewers.join(", "),
-            llm_summary: llm.summary,
-            llm_approved: llmApproved,
-            llm_concerns: llm.concerns.join("; "),
-            comment_body: commentBody,
-            pr_url: prUrl,
-            discord_message: discordMessage,
-            reason: reason,
-          };
-        }
-    id: format-pr-review
-    name: Format PR review
-    position:
-      x: 2208
-      "y": 672
-    type: TYPE_ACTION
   - component: if
     configuration:
       expression: '{{ (root().data.action == "opened" || root().data.action == "ready_for_review"
@@ -638,205 +839,4 @@ spec:
     position:
       x: 2976
       "y": 672
-    type: TYPE_ACTION
-  - component: github.onPullRequest
-    configuration:
-      actions:
-      - opened
-      - synchronize
-      - reopened
-      - ready_for_review
-      repository: superplane
-    id: trigger-on-pull-request
-    integration:
-      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
-    metadata:
-      repository:
-        id: 979560403.0
-        name: superplane
-        url: https://github.com/superplanehq/superplane
-    name: On Pull Request
-    position:
-      x: 552
-      "y": 768
-    type: TYPE_TRIGGER
-  - component: start
-    configuration:
-      templates:
-      - name: run
-        parameters:
-        - name: repository
-          placeholder: e.g. superplanehq/superplane
-          title: Repository
-          type: string
-        - name: pull_number
-          placeholder: e.g. 1234
-          title: Pull request number
-          type: string
-        payload:
-          action: manual
-          pull_number: "{{ parameters.pull_number }}"
-          repository: "{{ parameters.repository }}"
-    id: trigger-check-pr
-    name: Check PR
-    position:
-      x: 1080
-      "y": 552
-    type: TYPE_TRIGGER
-  - component: upsertMemory
-    configuration:
-      matchList:
-      - name: repository
-        value: '{{ $["Format PR review"].data.result.repository }}'
-      - name: pr_number
-        value: '{{ $["Format PR review"].data.result.pr_number }}'
-      namespace: prRiskChecks
-      valueList:
-      - name: repository
-        value: '{{ $["Format PR review"].data.result.repository }}'
-      - name: pr_number
-        value: '{{ $["Format PR review"].data.result.pr_number }}'
-      - name: title
-        value: '{{ $["Format PR review"].data.result.title }}'
-      - name: author
-        value: '{{ $["Format PR review"].data.result.author }}'
-      - name: satisfied
-        value: '{{ $["Format PR review"].data.result.satisfied == true ? "true" :
-          "false" }}'
-      - name: risk_score
-        value: '{{ $["Format PR review"].data.result.risk_score }}'
-      - name: risk_level
-        value: '{{ $["Format PR review"].data.result.risk_level }}'
-      - name: recommended_reviewers
-        value: '{{ $["Format PR review"].data.result.recommended_reviewers }}'
-      - name: llm_summary
-        value: '{{ $["Format PR review"].data.result.llm_summary }}'
-      - name: llm_approved
-        value: '{{ $["Format PR review"].data.result.llm_approved == true ? "true"
-          : "false" }}'
-      - name: last_checked_at
-        value: "{{ int(now().Unix()) }}"
-    id: upsertmemory-record-check-c410f8
-    name: Record check
-    position:
-      x: 2976
-      "y": 936
-    type: TYPE_ACTION
-  - component: annotation
-    configuration:
-      color: yellow
-      height: 120
-      text: If the risk is high, request review
-      width: 304
-    id: annotation-note-2-9dv0lv
-    name: Note 2
-    position:
-      x: 2976
-      "y": 504
-    type: TYPE_WIDGET
-  - component: github.addPullRequestReviewers
-    configuration:
-      pullNumber: '{{ $["Format PR review"].data.result.pr_number }}'
-      repository: '{{ $["Format PR review"].data.result.repository_name }}'
-      reviewers:
-      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 0 ? $["Format
-        PR review"].data.result.reviewers_to_request[0] : "" }}'
-      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 1 ? $["Format
-        PR review"].data.result.reviewers_to_request[1] : "" }}'
-      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 2 ? $["Format
-        PR review"].data.result.reviewers_to_request[2] : "" }}'
-      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 3 ? $["Format
-        PR review"].data.result.reviewers_to_request[3] : "" }}'
-      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 4 ? $["Format
-        PR review"].data.result.reviewers_to_request[4] : "" }}'
-      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 5 ? $["Format
-        PR review"].data.result.reviewers_to_request[5] : "" }}'
-      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 6 ? $["Format
-        PR review"].data.result.reviewers_to_request[6] : "" }}'
-      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 7 ? $["Format
-        PR review"].data.result.reviewers_to_request[7] : "" }}'
-      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 8 ? $["Format
-        PR review"].data.result.reviewers_to_request[8] : "" }}'
-      - '{{ len($["Format PR review"].data.result.reviewers_to_request) > 9 ? $["Format
-        PR review"].data.result.reviewers_to_request[9] : "" }}'
-    id: add-pull-request-reviewers
-    integration:
-      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
-    name: Add pull request reviewers
-    position:
-      x: 3600
-      "y": 672
-    type: TYPE_ACTION
-  - component: discord.sendTextMessage
-    configuration:
-      channel: '1518301668758782022'
-      content: '{{ $["Format PR review"].data.result.discord_message }}'
-    id: discord-notify-review
-    integration:
-      id: 8687b0b7-6482-43fe-b1cd-67b679985928
-    metadata:
-      channel:
-        id: '1518301668758782022'
-        name: "\U0001F440︱gh-pull-request-stream"
-      hasEmbed: false
-    name: Discord review posted
-    position:
-      x: 3648
-      "y": 360
-    type: TYPE_ACTION
-  - component: if
-    configuration:
-      expression: '{{ root().data.pull_request.base.ref == "main" && root().data.pull_request.draft
-        != true }}'
-    id: if-targets-main
-    name: Should assess?
-    position:
-      x: 1080
-      "y": 768
-    type: TYPE_ACTION
-  - component: upsertMemory
-    configuration:
-      matchList:
-      - name: repository
-        value: '{{ $["Format PR review"].data.result.repository }}'
-      - name: pr_number
-        value: '{{ $["Format PR review"].data.result.pr_number }}'
-      namespace: prRiskChecks
-      valueList:
-      - name: repository
-        value: '{{ $["Format PR review"].data.result.repository }}'
-      - name: pr_number
-        value: '{{ $["Format PR review"].data.result.pr_number }}'
-      - name: review_comment_id
-        value: '{{ string($["Create PR comment"].data.id) }}'
-    id: upsert-pr-comment-memory
-    name: Remember PR comment
-    position:
-      x: 4176
-      "y": 144
-    type: TYPE_ACTION
-  - component: annotation
-    configuration:
-      color: yellow
-      height: 128
-      text: Post a comment (or update it) on GitHub
-      width: 328
-    id: annotation-note-7c5j8u
-    name: Note
-    position:
-      x: 3000
-      "y": -144
-    type: TYPE_WIDGET
-  - component: github.createIssueComment
-    configuration:
-      body: '{{ $["Format PR review"].data.result.comment_body }}'
-      issueNumber: '{{ $["Format PR review"].data.result.pr_number }}'
-      repository: '{{ $["Format PR review"].data.result.repository_name }}'
-    id: github-create-pr-comment
-    integration:
-      id: 879eee5b-a973-4822-b4f2-0dc1df8b9680
-    name: Create PR comment
-    position:
-      x: 3648
-      "y": 144
     type: TYPE_ACTION
