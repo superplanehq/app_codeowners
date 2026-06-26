@@ -89,8 +89,6 @@ function buildSkippedResult(ctx, reason) {
   const repository = ctx.repository;
   const prNumber = ctx.pr_number;
   return {
-    valid: true,
-    satisfied: true,
     skipped: true,
     repository: repository,
     repository_name: ctx.repository_name || repository.split("/").pop() || repository,
@@ -105,11 +103,11 @@ function buildSkippedResult(ctx, reason) {
     risk_level: "low",
     recommended_reviewers: "",
     llm_summary: "",
-    llm_approved: true,
     comment_body: "",
     pr_url: repository && prNumber ? "https://github.com/" + repository + "/pull/" + prNumber : "",
     discord_message: "",
-    reason: reason,
+    reason: truncateStatusReason(reason),
+    status_description: truncateStatusReason(reason),
   };
 }
 
@@ -175,7 +173,6 @@ function parseLlmReview(text) {
     return {
       risk_score: 50,
       risk_level: "medium",
-      approved: false,
       summary: "Claude returned an empty review.",
       concerns: [],
       recommended_reviewers: [],
@@ -195,7 +192,6 @@ function parseLlmReview(text) {
     return {
       risk_score: riskScore,
       risk_level: riskLevel,
-      approved: parsed.approved === true || String(parsed.approved).toLowerCase() === "true",
       summary: String(parsed.summary || "").trim(),
       concerns: normalizeConcerns(parsed.concerns),
       recommended_reviewers: mergeRecommendedReviewers(parsed),
@@ -209,7 +205,6 @@ function parseLlmReview(text) {
     return {
       risk_score: 50,
       risk_level: "medium",
-      approved: false,
       summary: "Could not parse Claude review JSON.",
       concerns: [raw.slice(0, 500)],
       recommended_reviewers: [],
@@ -245,22 +240,43 @@ function truncateStatusReason(text) {
   return value.slice(0, 137) + "...";
 }
 
-function buildStatusReason(llm, valid, llmApproved, reviewersToRequest) {
-  let reason = "Risk: " + llm.risk_score + "/100 (" + llm.risk_level + ").";
-  if (!llmApproved) {
-    reason = "Review: changes requested. " + reason;
-  } else if (valid) {
-    reason = "Approved. " + reason;
+function parseNodeTimestamp(payload, name) {
+  const entry = payload[name] || {};
+  if (!entry.timestamp) return null;
+  const ms = new Date(entry.timestamp).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function evaluationSeconds(payload) {
+  const end = parseNodeTimestamp(payload, "Assess PR Risk");
+  const start =
+    parseNodeTimestamp(payload, "Should assess?") ||
+    parseNodeTimestamp(payload, "Check PR");
+  if (!end || !start || end < start) return null;
+  return Math.max(1, Math.round((end - start) / 1000));
+}
+
+function riskLevelLabel(riskLevel) {
+  const level = String(riskLevel || "")
+    .trim()
+    .toLowerCase();
+  if (!level) return "Unknown Risk";
+  return (
+    level.replace(/\b\w/g, function (char) {
+      return char.toUpperCase();
+    }) + " Risk"
+  );
+}
+
+function buildStatusDescription(seconds, riskScore, riskLevel) {
+  const label = riskLevelLabel(riskLevel);
+  if (seconds == null) {
+    return truncateStatusReason(riskScore + "/100 (" + label + ")");
   }
-  if (valid && reviewersToRequest.length) {
-    reason +=
-      " Requested " +
-      reviewersToRequest.length +
-      " reviewer" +
-      (reviewersToRequest.length === 1 ? "" : "s") +
-      ".";
-  }
-  return truncateStatusReason(reason);
+  const unit = seconds === 1 ? "second" : "seconds";
+  return truncateStatusReason(
+    "Evaluated in " + seconds + " " + unit + ". " + riskScore + "/100 (" + label + ")"
+  );
 }
 
 function buildDiscordMessage(title, prUrl, author, riskScore, riskLevel, prNumber) {
@@ -338,20 +354,21 @@ async function main() {
   const llm = {
     risk_score: llmParsed.risk_score,
     risk_level: llmParsed.risk_level,
-    approved: llmParsed.approved === true,
     summary: llmParsed.summary,
     concerns: llmParsed.concerns,
     recommended_reviewers: llmParsed.recommended_reviewers,
   };
 
-  const llmApproved = llm.approved === true;
-  const valid = llmApproved;
   const reviewersToRequest = mergeReviewers(
     llm.recommended_reviewers,
     author,
     maxReviewersForRisk(llm.risk_score)
   );
-  const reason = buildStatusReason(llm, valid, llmApproved, reviewersToRequest);
+  const statusDescription = buildStatusDescription(
+    evaluationSeconds($),
+    llm.risk_score,
+    llm.risk_level
+  );
   const commentBody = markCommentBody(buildCommentBody(llm));
   const prUrl = "https://github.com/" + repository + "/pull/" + prNumber;
   const discordMessage = commentBody
@@ -359,8 +376,6 @@ async function main() {
     : "";
 
   return {
-    valid: valid,
-    satisfied: valid,
     skipped: false,
     repository: repository,
     repository_name: ctx.repository_name || repository.split("/").pop() || repository,
@@ -375,11 +390,11 @@ async function main() {
     risk_level: llm.risk_level,
     recommended_reviewers: llm.recommended_reviewers.join(", "),
     llm_summary: llm.summary,
-    llm_approved: llmApproved,
     llm_concerns: llm.concerns.join("; "),
     comment_body: commentBody,
     pr_url: prUrl,
     discord_message: discordMessage,
-    reason: reason,
+    reason: statusDescription,
+    status_description: statusDescription,
   };
 }

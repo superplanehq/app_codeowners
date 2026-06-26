@@ -67,16 +67,15 @@ spec:
         2. **Format PR review** parses the JSON response
         3. **Create PR comment** or **Update PR comment** posts via the GitHub integration
         4. **Record check** saves results to the table below
-        5. **Discord review posted** sends a notification when a review completes
+        5. **Publish PR Risk Review status** reports risk on the PR head commit
+        6. **Discord review posted** sends a notification when a review completes
 
         </details>
 
         <details>
-        <summary>Pass / fail</summary>
+        <summary>Risk score</summary>
 
-        A check **passes** when Claude returns `"approved": true`.
-
-        Risk score (`0–100`) and level appear in the PR comment and console.
+        Risk score (`0–100`) and level appear in the PR comment, GitHub commit status, and console.
 
         </details>
 
@@ -125,9 +124,9 @@ spec:
           label: Author
         - field: '{{ string(int(risk_score)) + "/100" }}'
           label: Risk
-        - field: satisfied
+        - field: risk_level
           format: badge
-          label: Status
+          label: Level
         - field: last_checked_at
           format: relative
           label: Last check
@@ -143,14 +142,26 @@ spec:
             repository: "{{ repository }}"
           variant: default
         rowStyles:
-        - field: satisfied
+        - field: risk_level
           op: eq
           tone: green
-          value: 'true'
-        - field: satisfied
+          value: very low
+        - field: risk_level
+          op: eq
+          tone: green
+          value: low
+        - field: risk_level
+          op: eq
+          tone: yellow
+          value: medium
+        - field: risk_level
+          op: eq
+          tone: orange
+          value: high
+        - field: risk_level
           op: eq
           tone: red
-          value: 'false'
+          value: critical
         sort:
           field: last_checked_at
           order: desc

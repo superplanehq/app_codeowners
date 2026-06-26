@@ -34,11 +34,9 @@ Checks run for PRs targeting **`main`** or **`master`** only (manual checks alwa
 
 `[Fix auth middleware](<https://github.com/acme/api/pull/42>) - alice - Risk 15/100 (low)`
 
-## Pass / fail
+## Risk score
 
-A check **passes** when Claude returns `"approved": true` in its JSON review.
-
-Risk score (`0–100`) and level (`very low` / `low` / `medium` / `high` / `critical`) are shown in the PR comment and console.
+Risk score (`0–100`) and level (`very low` / `low` / `medium` / `high` / `critical`) are shown in the PR comment, GitHub commit status, and console.
 
 ## Source layout
 
